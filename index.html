@@ -37,6 +37,12 @@
     font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.3);
   }
   .legend span.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+  #debug {
+    position: absolute; bottom: 10px; left: 10px; z-index: 1100;
+    max-width: 420px; max-height: 200px; overflow: auto;
+    background: rgba(0,0,0,.82); color: #9f9; font: 11px/1.5 monospace;
+    padding: 8px 10px; border-radius: 8px; white-space: pre-wrap; word-break: break-all;
+  }
 </style>
 </head>
 <body>
@@ -52,6 +58,7 @@
   <span class="dot" style="background:#1e73c8"></span>vyššie &nbsp;
   <span class="dot" style="background:#fff;border:1px solid #999"></span>vybrané
 </div>
+<div id="debug">debug log…</div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="js/app.js"></script>
 </body>
