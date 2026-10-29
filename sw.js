@@ -1,5 +1,5 @@
 /* SkyMonitor service worker – offline app shell */
-var SHELL_CACHE = 'skymonitor-shell-v3';
+var SHELL_CACHE = 'skymonitor-shell-v4';
 var TILE_CACHE = 'skymonitor-tiles-v1';
 var API_HOSTS = ['opensky-network.org', 'api.adsb.lol', 'opendata.adsb.fi', 'api.airplanes.live'];
 var SHELL = [
@@ -24,8 +24,12 @@ self.addEventListener('fetch', function (e) {
   if (e.request.method !== 'GET') return;
 
   if (API_HOSTS.indexOf(url.hostname) !== -1) {
-    // API: vždy priamo sieť, žiadna cache
-    e.respondWith(fetch(e.request).catch(function () { return new Response('{"ac":[],"states":[]}', { headers: { 'Content-Type': 'application/json' } }); }));
+    // API: vždy priamo sieť, bez cache; ak visí, po 10 s prázdna odpoveď
+    var empty = new Response('{"ac":[],"states":[]}', { headers: { 'Content-Type': 'application/json' } });
+    e.respondWith(Promise.race([
+      fetch(e.request).catch(function () { return empty; }),
+      new Promise(function (r) { setTimeout(function () { r(empty); }, 10000); })
+    ]));
     return;
   }
   if (url.hostname.endsWith('tile.openstreetmap.org')) {
