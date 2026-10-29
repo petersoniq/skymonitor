@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.3.1';
+  var VERSION = '1.3.2';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -50,10 +50,11 @@
 
   function fetchTimeout(url, ms) {
     ms = ms || 8000;
-    var ctl = new AbortController();
-    var timer = setTimeout(function () { ctl.abort(); }, ms);
-    dbg('fetch: ' + url);
-    var req = fetch(url, { signal: ctl.signal, cache: 'no-store' }).finally(function () { clearTimeout(timer); });
+    var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var timer = ctl ? setTimeout(function () { ctl.abort(); }, ms) : null;
+    dbg('fetch: ' + url + (ctl ? '' : ' (bez AbortController)'));
+    var opts = ctl ? { signal: ctl.signal, cache: 'no-store' } : { cache: 'no-store' };
+    var req = fetch(url, opts).finally(function () { if (timer) clearTimeout(timer); });
     // hard race: aj keď fetch visí (napr. kvôli SW/zdroju), po ms sa pokračuje ďalej
     return Promise.race([
       req,
@@ -167,7 +168,13 @@
     status('Načítavám… (' + (i + 1) + '/' + SOURCES.length + ': ' + SRC_NAMES[i] + ')');
     dbg('skúšam zdroj: ' + SRC_NAMES[i]);
     var fn = SOURCES[i];
-    return fn()
+    var p;
+    try {
+      p = fn();
+    } catch (e) {
+      p = Promise.reject(e);
+    }
+    return p
       .then(function (arr) {
         attemptLog.push(SRC_NAMES[i] + ': OK (' + arr.length + ')');
         dbg('OK ' + SRC_NAMES[i] + ': ' + arr.length + ' lietadiel');
