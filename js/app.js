@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.2.1';
+  var VERSION = '1.2.2';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -39,9 +39,17 @@
   }
 
   function fetchTimeout(url, ms) {
+    ms = ms || 8000;
     var ctl = new AbortController();
-    var t = setTimeout(function () { ctl.abort(); }, ms || FETCH_TIMEOUT);
-    return fetch(url, { signal: ctl.signal }).finally(function () { clearTimeout(t); });
+    var timer = setTimeout(function () { ctl.abort(); }, ms);
+    var req = fetch(url, { signal: ctl.signal }).finally(function () { clearTimeout(timer); });
+    // hard race: aj keď fetch visí (napr. kvôli SW/zdroju), po ms sa pokračuje ďalej
+    return Promise.race([
+      req,
+      new Promise(function (_, reject) {
+        setTimeout(function () { reject(new Error('timeout')); }, ms);
+      })
+    ]);
   }
 
   function colorFor(altFt) {
