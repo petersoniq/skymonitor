@@ -79,7 +79,7 @@
     lines.push('Na zemi: ' + (a.onGround ? 'áno' : 'nie'));
     if (a.emergency && a.emergency !== 'none') lines.push('<b style="color:#d43f3f">STAV: ' + a.emergency + '</b>');
     lines.push('<small>Zdroj: ' + a.src + ' • dráha: ' + ((a.trail || []).length) + ' bodov</small>');
-    lines.push('<button onclick="window.__skyFollow('' + a.icao24 + '')" style="margin-top:6px;padding:5px 10px;border:none;border-radius:6px;background:#0b3d5c;color:#fff;cursor:pointer">' +
+    lines.push('<button onclick="window.__skyFollow(&#39;' + a.icao24 + '&#39;)" style="margin-top:6px;padding:5px 10px;border:none;border-radius:6px;background:#0b3d5c;color:#fff;cursor:pointer">' +
       (follow === a.icao24 ? 'Prestaň sledovať' : 'Sleduj tento let') + '</button>');
     return '<div class="plane-popup">' + lines.join('<br>') + '</div>';
   }
@@ -215,7 +215,7 @@
     tryFetch(sourceIdx)
       .then(function (arr) {
         lastFetch = Date.now();
-        if (arr.length) { lastSource = arr[0].src; sourceIdx = SOURCES.findIndex(function (f) { return f.name === 'x'; }); }
+        if (arr.length) lastSource = arr[0].src;
         renderStates(arr);
         if (follow && planes[follow]) {
           map.setView([planes[follow].lat, planes[follow].lon], map.getZoom(), { animate: false });
