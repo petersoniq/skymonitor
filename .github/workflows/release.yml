@@ -1,0 +1,35 @@
+name: Auto Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Zisti verziu z manifestu
+        id: ver
+        run: |
+          VERSION=$(grep -o '"version": *"[^"]*"' manifest.webmanifest | sed 's/.*"version": *"\([^"]*\)".*/\1/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Vytvor tag a release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: SkyMonitor v${{ steps.ver.outputs.version }}
+          body: |
+            Automatický release z main vetvy.
+
+            **SkyMonitor v${{ steps.ver.outputs.version }}**
+            - Live pozície lietadiel (OpenSky Network)
+            - Mapa OpenStreetMap (Leaflet)
+            - PWA – inštalovateľná aplikácia s offline shellom
+            - Vyhľadávanie podľa callsign / ICAO24
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
