@@ -1,36 +1,39 @@
 /* SkyMonitor – live aircraft positions
- * Data: OpenSky Network (free, https://opensky-network.org)
- * Map:  Leaflet + OpenStreetMap (free)
+ * Primary data: adsb.lol (free, no API key, https://api.adsb.lol)
+ * Fallback:     OpenSky Network (free, https://opensky-network.org)
+ * Map:          Leaflet + OpenStreetMap (free)
  */
 (function () {
   'use strict';
 
-  var API = 'https://opensky-network.org/api/states/all';
-  var REFRESH_MS = 30000;          // rešpektuj anonymous rate-limit
+  var REFRESH_MS = 15000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f']; // vysoko / stredne / nízko
+  var FT = 3.28084;
 
   var map = L.map('map', { zoomControl: true }).setView([48.7, 19.5], 6);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 18,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | Data: <a href="https://opensky-network.org">OpenSky Network</a>'
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | Data: <a href="https://api.adsb.lol">adsb.lol</a> / <a href="https://opensky-network.org">OpenSky</a>'
   }).addTo(map);
 
-  var markers = {};   // icao24 -> marker
-  var lastData = {};  // icao24 -> state
-  var lastFetch = 0;
+  var markers = {};
+  var inFlight = false;
+  var pending = false;
   var timer = null;
+  var lastFetch = 0;
+  var source = 'adsb.lol';
 
   function status(msg) { document.getElementById('status').textContent = msg; }
 
-  function colorFor(alt) {
-    if (alt == null) return ICON_COLORS[0];
-    if (alt < 2000) return ICON_COLORS[2];
-    if (alt < 8000) return ICON_COLORS[1];
+  function colorFor(altFt) {
+    if (altFt == null) return ICON_COLORS[0];
+    if (altFt < 6000) return ICON_COLORS[2];
+    if (altFt < 26000) return ICON_COLORS[1];
     return ICON_COLORS[0];
   }
 
-  function planeIcon(heading, alt) {
-    var c = colorFor(alt);
+  function planeIcon(heading, altFt) {
+    var c = colorFor(altFt);
     var svg =
       '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">' +
       '<g transform="rotate(' + (heading || 0) + ' 12 12)">' +
@@ -39,68 +42,107 @@
     return L.divIcon({ className: 'plane-icon', html: svg, iconSize: [26, 26], iconAnchor: [13, 13] });
   }
 
-  // [icao24, callsign, origin_country, time_position, last_contact,
-  //  lon, lat, baro_alt, on_ground, velocity, true_track, vertical_rate,
-  //  sensors, geo_alt, squawk, spi, position_source, category?]
-  function popupHtml(s) {
-    var cs = (s[1] || '').trim() || s[0];
-    var fmt = function (v, u) { return (v == null ? '–' : Math.round(v) + ' ' + u); };
-    return '<div class="plane-popup">' +
-      '<b>' + cs.toUpperCase() + '</b> <small>(' + s[0] + ')</small><br>' +
-      'Krajina: ' + s[2] + '<br>' +
-      'Rýchlosť: ' + fmt(s[9], 'm/s') + ' (' + (s[9] != null ? Math.round(s[9] * 3.6) : '–') + ' km/h)<br>' +
-      'Výška (baro): ' + fmt(s[7], 'm') + ' / ' + (s[7] != null ? Math.round(s[7] * 3.28084) : '–') + ' ft<br>' +
-      'Výška (geo): ' + fmt(s[13], 'm') + '<br>' +
-      'Vertikálna rýchlosť: ' + fmt(s[11], 'm/s') + '<br>' +
-      'Kurz: ' + fmt(s[10], '°') + '<br>' +
-      'Squawk: ' + (s[14] || '–') + '<br>' +
-      'Na zemi: ' + (s[8] ? 'áno' : 'nie') + '<br>' +
-      'Posledný kontakt: ' + (s[4] ? new Date(s[4] * 1000).toLocaleTimeString('sk') : '–') +
-      '</div>';
+  function fmt(v, u) { return (v == null ? '–' : (typeof v === 'number' ? Math.round(v) : v) + (u ? ' ' + u : '')); }
+
+  function popupHtml(a) {
+    var cs = (a.callsign || '').trim() || a.icao24;
+    var lines = ['<b>' + cs.toUpperCase() + '</b> <small>(' + a.icao24 + ')</small>'];
+    if (a.reg) lines.push('Registrácia: ' + a.reg);
+    if (a.type) lines.push('Typ: ' + a.type);
+    if (a.country) lines.push('Krajina: ' + a.country);
+    lines.push('Rýchlosť: ' + fmt(a.speedKmh, 'km/h') + ' (' + fmt(a.speedKt, 'kt') + ')');
+    lines.push('Výška: ' + fmt(a.altFt, 'ft') + ' (' + fmt(a.altFt != null ? a.altFt / FT : null, 'm') + ')');
+    lines.push('Vertikálna rýchlosť: ' + fmt(a.vrateFpm, 'ft/min'));
+    lines.push('Kurz: ' + fmt(a.track, '°'));
+    lines.push('Squawk: ' + (a.squawk || '–'));
+    lines.push('Na zemi: ' + (a.onGround ? 'áno' : 'nie'));
+    if (a.emergency && a.emergency !== 'none') lines.push('<b style="color:#d43f3f">STAV: ' + a.emergency + '</b>');
+    lines.push('<small>Zdroj: ' + a.src + '</small>');
+    return '<div class="plane-popup">' + lines.join('<br>') + '</div>';
   }
 
-  function renderStates(states) {
+  function normAdsb(a) {
+    return {
+      icao24: a.hex, callsign: a.flight, reg: a.r || null, type: a.t || null, country: null,
+      lat: a.lat, lon: a.lon,
+      altFt: (a.alt_baro === 'ground') ? 0 : a.alt_baro,
+      onGround: (a.alt_baro === 'ground'),
+      speedKt: a.gs, speedKmh: (a.gs != null ? a.gs * 1.852 : null),
+      track: a.track, vrateFpm: a.baro_rate, squawk: a.squawk,
+      emergency: a.emergency, src: 'adsb.lol'
+    };
+  }
+
+  function normOpenSky(s) {
+    return {
+      icao24: s[0], callsign: s[1], reg: null, type: null, country: s[2],
+      lat: s[6], lon: s[5],
+      altFt: (s[7] != null ? s[7] * FT : null),
+      onGround: !!s[8],
+      speedKt: (s[9] != null ? s[9] * 1.94384 : null),
+      speedKmh: (s[9] != null ? s[9] * 3.6 : null),
+      track: s[10], vrateFpm: (s[11] != null ? s[11] * FT * 60 : null),
+      squawk: s[14], emergency: null, src: 'OpenSky'
+    };
+  }
+
+  function renderStates(arr) {
     var seen = {};
-    states.forEach(function (s) {
-      if (s[5] == null || s[6] == null) return; // bez pozície
-      var icao24 = s[0];
-      seen[icao24] = true;
-      lastData[icao24] = s;
-      if (markers[icao24]) {
-        markers[icao24].setLatLng([s[6], s[5]]);
-        markers[icao24].setIcon(planeIcon(s[10], s[13]));
-        markers[icao24].setPopupContent(popupHtml(s));
+    arr.forEach(function (a) {
+      if (a.lat == null || a.lon == null) return;
+      seen[a.icao24] = true;
+      if (markers[a.icao24]) {
+        markers[a.icao24].setLatLng([a.lat, a.lon]);
+        markers[a.icao24].setIcon(planeIcon(a.track, a.altFt));
+        markers[a.icao24].setPopupContent(popupHtml(a));
       } else {
-        var m = L.marker([s[6], s[5]], { icon: planeIcon(s[10], s[13]) })
+        markers[a.icao24] = L.marker([a.lat, a.lon], { icon: planeIcon(a.track, a.altFt) })
           .addTo(map)
-          .bindPopup(popupHtml(s));
-        markers[icao24] = m;
+          .bindPopup(popupHtml(a));
       }
     });
-    // odstráň staré
     Object.keys(markers).forEach(function (k) {
-      if (!seen[k]) { map.removeLayer(markers[k]); delete markers[k]; delete lastData[k]; }
+      if (!seen[k]) { map.removeLayer(markers[k]); delete markers[k]; }
     });
+  }
+
+  function fetchAdsbLol() {
+    var c = map.getCenter();
+    var url = 'https://api.adsb.lol/v2/lat/' + c.lat.toFixed(4) + '/lon/' + c.lon.toFixed(4) + '/dist/250';
+    return fetch(url).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (d) { return (d.ac || []).map(normAdsb); });
+  }
+
+  function fetchOpenSky() {
+    var b = map.getBounds().pad(0.5);
+    var url = 'https://opensky-network.org/api/states/all?lamin=' + b.getSouth().toFixed(4) +
+              '&lomin=' + b.getWest().toFixed(4) + '&lamax=' + b.getNorth().toFixed(4) +
+              '&lomax=' + b.getEast().toFixed(4);
+    return fetch(url).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (d) { return (d.states || []).map(normOpenSky); });
   }
 
   function fetchStates() {
-    var b = map.getBounds().pad(0.5);
-    var url = API + '?lamin=' + b.getSouth().toFixed(4) + '&lomin=' + b.getWest().toFixed(4) +
-              '&lamax=' + b.getNorth().toFixed(4) + '&lomax=' + b.getEast().toFixed(4);
-    if (map.getZoom() <= 3) url = API; // široký výrez = celý svet
-
+    if (inFlight) { pending = true; return; }
+    inFlight = true;
     status('Načítavam…');
-    fetch(url).then(function (r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    }).then(function (d) {
-      lastFetch = Date.now();
-      var n = (d.states || []).length;
-      renderStates(d.states || []);
-      status(n + ' lietadiel • ' + new Date().toLocaleTimeString('sk'));
-    }).catch(function (e) {
-      status('Chyba: ' + e.message + ' (skúsim znova)');
-    });
+    fetchAdsbLol()
+      .catch(function (err) {
+        status('adsb.lol zlyhal (' + err.message + '), skúšam OpenSky…');
+        return fetchOpenSky();
+      })
+      .then(function (arr) {
+        lastFetch = Date.now();
+        if (arr.length) source = arr[0].src;
+        renderStates(arr);
+        status(arr.length + ' lietadiel • ' + new Date().toLocaleTimeString('sk') + ' • ' + source);
+      })
+      .catch(function (err) { status('Chyba: ' + err.message); })
+      .then(function () { inFlight = false; if (pending) { pending = false; fetchStates(); } });
   }
 
   function refresh() {
@@ -113,24 +155,26 @@
 
   map.on('moveend zoomend', refresh);
 
-  // Hľadanie: globálny fetch + filter
   document.getElementById('search').addEventListener('keydown', function (e) {
     if (e.key !== 'Enter') return;
     var q = e.target.value.trim().toLowerCase();
     if (!q) return;
     status('Hľadám "' + q + '"…');
-    fetch(API).then(function (r) { return r.json(); }).then(function (d) {
-      var hits = (d.states || []).filter(function (s) {
-        var cs = (s[1] || '').trim().toLowerCase();
-        return cs.indexOf(q) !== -1 || s[0].toLowerCase().indexOf(q) !== -1;
-      });
-      if (!hits.length) { status('Nič nenájdené pre "' + q + '"'); return; }
-      var s = hits[0];
-      renderStates(hits);
-      map.setView([s[6], s[5]], 9, { animate: true });
-      if (markers[s[0]]) markers[s[0]].openPopup();
-      status('Nájdené: ' + hits.length + ' lietadiel');
-    }).catch(function (err) { status('Chyba hľadania: ' + err.message); });
+    fetch('https://opensky-network.org/api/states/all')
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (d) {
+        var hits = (d.states || []).filter(function (s) {
+          var cs = (s[1] || '').trim().toLowerCase();
+          return cs.indexOf(q) !== -1 || s[0].toLowerCase().indexOf(q) !== -1;
+        }).map(normOpenSky).filter(function (a) { return a.lat != null; });
+        if (!hits.length) { status('Nič nenájdené pre "' + q + '"'); return; }
+        var a = hits[0];
+        renderStates(hits);
+        map.setView([a.lat, a.lon], 9, { animate: true });
+        if (markers[a.icao24]) markers[a.icao24].openPopup();
+        status('Nájdené: ' + hits.length + ' lietadiel');
+      })
+      .catch(function (err) { status('Chyba hľadania: ' + err.message); });
   });
 
   if ('serviceWorker' in navigator) {
