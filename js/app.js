@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.4.3';
+  var VERSION = '1.5.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -34,18 +34,13 @@
   var lastFetch = 0;
   var lastSource = '';
 
-  var dbgEl = null;
   function dbg(msg) {
-    try {
-      if (!dbgEl) dbgEl = document.getElementById('debug');
-      if (!dbgEl) return;
-      var ts = new Date().toLocaleTimeString('sk') + '.' + String(new Date().getMilliseconds()).padStart(3, '0');
-      dbgEl.textContent = ts + '  ' + msg + '\n' + dbgEl.textContent;
-    } catch (e) {}
+    // tichý režim – len do konzoly (F12), žiadny vizuálny panel
+    try { if (console && console.log) console.log('[SkyMonitor] ' + msg); } catch (e) {}
   }
 
   function status(msg) {
-    document.getElementById('status').innerHTML = msg + ' <small>v' + VERSION + '</small>';
+    document.getElementById('status').innerHTML = msg;
   }
 
   function fetchTimeout(url, ms) {
@@ -182,7 +177,7 @@
 
   function tryFetch(i) {
     if (i >= SOURCES.length) return Promise.reject(new Error('všetky zdroje zlyhali'));
-    status('Načítavám… (' + (i + 1) + '/' + SOURCES.length + ': ' + SRC_NAMES[i] + ')');
+    status('Načítavam…');
     dbg('skúšam zdroj: ' + SRC_NAMES[i]);
     var fn = SOURCES[i];
     var p;
@@ -283,7 +278,7 @@
         if (follow && planes[follow]) {
           map.setView([planes[follow].lat, planes[follow].lon], map.getZoom(), { animate: false });
         }
-        status(arr.length + ' lietadiel • ' + new Date().toLocaleTimeString('sk') + (lastSource ? ' • ' + lastSource : '') + (attemptLog.filter(function (s) { return s.indexOf(': OK') === -1; }).length ? ' • zlyhalo: ' + attemptLog.filter(function (s) { return s.indexOf(': OK') === -1; }).join(', ') : ''));
+        status(arr.length + ' lietadiel • ' + new Date().toLocaleTimeString('sk') + (lastSource ? ' • ' + lastSource : ''));
       })
       .catch(function (err) { status('Chyba: ' + err.message); })
       .then(function () { inFlight = false; if (pending) { pending = false; fetchStates(); } });
