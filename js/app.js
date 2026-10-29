@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.2.0';
+  var VERSION = '1.2.1';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -135,15 +135,22 @@
   }
 
   var SOURCES = [fetchAdsbLol, fetchAdsbFi, fetchAirplanesLive, fetchOpenSky];
-  var sourceIdx = 0;
+  var SRC_NAMES = ['adsb.lol', 'adsb.fi', 'airplanes.live', 'OpenSky'];
+  var attemptLog = [];
 
   function tryFetch(i) {
     if (i >= SOURCES.length) return Promise.reject(new Error('všetky zdroje zlyhali'));
+    status('Načítavám… (' + (i + 1) + '/' + SOURCES.length + ': ' + SRC_NAMES[i] + ')');
     var fn = SOURCES[i];
-    return fn().catch(function (err) {
-      status('Zdroj ' + (i + 1) + ' zlyhal (' + err.message + '), skúšam ďalší…');
-      return tryFetch(i + 1);
-    });
+    return fn()
+      .then(function (arr) {
+        attemptLog.push(SRC_NAMES[i] + ': OK (' + arr.length + ')');
+        return arr;
+      })
+      .catch(function (err) {
+        attemptLog.push(SRC_NAMES[i] + ': ' + err.message);
+        return tryFetch(i + 1);
+      });
   }
 
   // ---------- vykreslenie ----------
@@ -211,8 +218,9 @@
   function fetchStates() {
     if (inFlight) { pending = true; return; }
     inFlight = true;
+    attemptLog = [];
     status('Načítavam…');
-    tryFetch(sourceIdx)
+    tryFetch(0)
       .then(function (arr) {
         lastFetch = Date.now();
         if (arr.length) lastSource = arr[0].src;
@@ -220,7 +228,7 @@
         if (follow && planes[follow]) {
           map.setView([planes[follow].lat, planes[follow].lon], map.getZoom(), { animate: false });
         }
-        status(arr.length + ' lietadiel • ' + new Date().toLocaleTimeString('sk') + (lastSource ? ' • ' + lastSource : ''));
+        status(arr.length + ' lietadiel • ' + new Date().toLocaleTimeString('sk') + (lastSource ? ' • ' + lastSource : '') + (attemptLog.filter(function (s) { return s.indexOf(': OK') === -1; }).length ? ' • zlyhalo: ' + attemptLog.filter(function (s) { return s.indexOf(': OK') === -1; }).join(', ') : ''));
       })
       .catch(function (err) { status('Chyba: ' + err.message); })
       .then(function () { inFlight = false; if (pending) { pending = false; fetchStates(); } });
