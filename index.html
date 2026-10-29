@@ -16,7 +16,7 @@
     position: absolute; top: 10px; left: 10px; right: 10px; z-index: 1000;
     display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
   }
-  .topbar input {
+  .topbar input[type="search"] {
     flex: 1 1 240px; max-width: 380px; padding: 10px 14px; font-size: 15px;
     border: none; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,.3); outline: none;
   }
@@ -24,10 +24,13 @@
     background: rgba(11,61,92,.92); color: #fff; padding: 8px 12px; border-radius: 10px;
     font-size: 13px; box-shadow: 0 2px 8px rgba(0,0,0,.3);
   }
+  .topbar label {
+    background: rgba(255,255,255,.95); padding: 8px 12px; border-radius: 10px;
+    font-size: 13px; display: flex; align-items: center; gap: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.3); cursor: pointer; user-select: none;
+  }
   .plane-popup { font-size: 13px; line-height: 1.5; }
   .plane-popup b { color: #0b3d5c; }
-  .plane-icon { display: flex; align-items: center; justify-content: center; }
-  .plane-icon svg { width: 26px; height: 26px; filter: drop-shadow(0 1px 1px rgba(0,0,0,.5)); }
   .legend {
     position: absolute; bottom: 10px; right: 10px; z-index: 1000;
     background: rgba(255,255,255,.95); border-radius: 10px; padding: 8px 12px;
@@ -39,13 +42,15 @@
 <body>
 <div id="map"></div>
 <div class="topbar">
-  <input id="search" type="search" placeholder="Hľadať lietadlo (callsign alebo ICAO24 hex)…" autocomplete="off">
+  <input id="search" type="search" placeholder="Hľadať lietadlo (callsign alebo hex)…" autocomplete="off">
+  <label><input type="checkbox" id="hideground"> Skryť na zemi</label>
   <div class="status" id="status">Načítavam…</div>
 </div>
 <div class="legend">
   <span class="dot" style="background:#d43f3f"></span>nízko &nbsp;
   <span class="dot" style="background:#e08a1e"></span>stredne &nbsp;
-  <span class="dot" style="background:#1e73c8"></span>vyššie
+  <span class="dot" style="background:#1e73c8"></span>vyššie &nbsp;
+  <span class="dot" style="background:#fff;border:1px solid #999"></span>vybrané
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="js/app.js"></script>
