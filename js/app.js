@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.4.0';
+  var VERSION = '1.4.1';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -135,7 +135,10 @@
     return fetchTimeout(url).then(function (r) {
       dbg('odpoveď ' + name + ' HTTP ' + r.status + ', ' + (r.headers.get('content-length') || '?') + ' B');
       if (!r.ok) throw new Error(name + ' HTTP ' + r.status);
-      return r.json();
+      return r.clone().text().then(function (tx) {
+        dbg('telo (' + name + '): ' + tx.slice(0, 180));
+        return r.json();
+      });
     }).then(function (d) {
       if (d && d.error) throw new Error(name + ' error: ' + String(d.error).slice(0, 80));
       var list = d.ac || d.aircraft || [];
