@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b3d5c">
+<title>SkyMonitor</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  #map { height: 100%; width: 100%; }
+  .topbar {
+    position: absolute; top: 10px; left: 10px; right: 10px; z-index: 1000;
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  .topbar input {
+    flex: 1 1 240px; max-width: 380px; padding: 10px 14px; font-size: 15px;
+    border: none; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,.3); outline: none;
+  }
+  .topbar .status {
+    background: rgba(11,61,92,.92); color: #fff; padding: 8px 12px; border-radius: 10px;
+    font-size: 13px; box-shadow: 0 2px 8px rgba(0,0,0,.3);
+  }
+  .plane-popup { font-size: 13px; line-height: 1.5; }
+  .plane-popup b { color: #0b3d5c; }
+  .plane-icon { display: flex; align-items: center; justify-content: center; }
+  .plane-icon svg { width: 26px; height: 26px; filter: drop-shadow(0 1px 1px rgba(0,0,0,.5)); }
+  .legend {
+    position: absolute; bottom: 10px; right: 10px; z-index: 1000;
+    background: rgba(255,255,255,.95); border-radius: 10px; padding: 8px 12px;
+    font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.3);
+  }
+  .legend span.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="topbar">
+  <input id="search" type="search" placeholder="Hľadať lietadlo (callsign alebo ICAO24 hex)…" autocomplete="off">
+  <div class="status" id="status">Načítavam…</div>
+</div>
+<div class="legend">
+  <span class="dot" style="background:#d43f3f"></span>nízko &nbsp;
+  <span class="dot" style="background:#e08a1e"></span>stredne &nbsp;
+  <span class="dot" style="background:#1e73c8"></span>vyššie
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
