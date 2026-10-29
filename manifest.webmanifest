@@ -1,7 +1,7 @@
 {
   "name": "SkyMonitor",
   "short_name": "SkyMonitor",
-  "description": "Aktuálne pozície lietadiel na mape (OpenSky Network + OpenStreetMap).",
+  "description": "Aktuálne pozície lietadiel na mape (adsb.lol / OpenSky + OpenStreetMap).",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
@@ -11,5 +11,5 @@
   "icons": [
     { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ],
-  "version": "1.0.1"
+  "version": "1.1.0"
 }
