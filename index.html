@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0b3d5c">
-<title>SkyMonitor</title>
+<title>SkyMonitor – live lietadlá</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -12,45 +12,85 @@
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #map { height: 100%; width: 100%; }
+
   .topbar {
-    position: absolute; top: 10px; left: 10px; right: 10px; z-index: 1000;
-    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    position: absolute; top: 12px; left: 12px; right: 12px; z-index: 1000;
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
   }
+
+  .brand {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(11,61,92,.92); color: #fff;
+    padding: 10px 16px; border-radius: 12px;
+    font-weight: 700; font-size: 16px; letter-spacing: .3px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.25);
+    backdrop-filter: blur(6px);
+  }
+  .brand svg { width: 20px; height: 20px; flex: none; }
+  .brand small { font-weight: 400; opacity: .75; font-size: 11px; display: block; margin-top: -2px; }
+
   .topbar input[type="search"] {
-    flex: 1 1 240px; max-width: 380px; padding: 10px 14px; font-size: 15px;
-    border: none; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,.3); outline: none;
+    flex: 1 1 220px; max-width: 340px; min-width: 160px;
+    padding: 11px 14px; font-size: 15px;
+    border: none; border-radius: 12px; outline: none;
+    box-shadow: 0 4px 14px rgba(0,0,0,.25);
+    background: rgba(255,255,255,.96);
   }
-  .topbar .status {
-    background: rgba(11,61,92,.92); color: #fff; padding: 8px 12px; border-radius: 10px;
-    font-size: 13px; box-shadow: 0 2px 8px rgba(0,0,0,.3);
+  .topbar input[type="search"]:focus { box-shadow: 0 0 0 3px rgba(30,115,200,.5); }
+
+  .toggle {
+    display: flex; align-items: center; gap: 7px;
+    background: rgba(255,255,255,.92); padding: 10px 14px; border-radius: 12px;
+    font-size: 13.5px; cursor: pointer; user-select: none; white-space: nowrap;
+    box-shadow: 0 4px 14px rgba(0,0,0,.25);
   }
-  .topbar label {
-    background: rgba(255,255,255,.95); padding: 8px 12px; border-radius: 10px;
-    font-size: 13px; display: flex; align-items: center; gap: 6px;
-    box-shadow: 0 2px 8px rgba(0,0,0,.3); cursor: pointer; user-select: none;
+  .toggle input { accent-color: #0b3d5c; width: 15px; height: 15px; }
+
+  .status {
+    background: rgba(11,61,92,.92); color: #fff;
+    padding: 10px 14px; border-radius: 12px; font-size: 13px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.25); backdrop-filter: blur(6px);
+    display: flex; align-items: center; gap: 7px; white-space: nowrap;
   }
-  .plane-popup { font-size: 13px; line-height: 1.5; }
-  .plane-popup b { color: #0b3d5c; }
+  .status .pulse {
+    width: 8px; height: 8px; border-radius: 50%; background: #4ade80;
+    animation: pulse 2s infinite; flex: none;
+  }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(74,222,128,.6); }
+    70%  { box-shadow: 0 0 0 7px rgba(74,222,128,0); }
+    100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
+  }
+
+  .plane-popup { font-size: 13px; line-height: 1.55; min-width: 200px; }
+  .plane-popup b { color: #0b3d5c; font-size: 14px; }
+  .plane-popup small { color: #667; }
+
   .legend {
-    position: absolute; bottom: 10px; right: 10px; z-index: 1000;
-    background: rgba(255,255,255,.95); border-radius: 10px; padding: 8px 12px;
-    font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.3);
+    position: absolute; bottom: 12px; right: 12px; z-index: 1000;
+    background: rgba(255,255,255,.93); border-radius: 12px; padding: 9px 13px;
+    font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.25);
   }
   .legend span.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
-  #debug {
-    position: absolute; bottom: 10px; left: 10px; z-index: 1100;
-    max-width: 420px; max-height: 200px; overflow: auto;
-    background: rgba(0,0,0,.82); color: #9f9; font: 11px/1.5 monospace;
-    padding: 8px 10px; border-radius: 8px; white-space: pre-wrap; word-break: break-all;
+
+  @media (max-width: 640px) {
+    .brand small { display: none; }
+    .status { order: 9; width: 100%; justify-content: center; }
   }
 </style>
 </head>
 <body>
 <div id="map"></div>
 <div class="topbar">
+  <div class="brand">
+    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <path fill="#fff" d="M12 2 L13.2 9.5 L21 12 L13.2 14.2 L13.6 17.5 L15.5 19.5 L12 18.8 L8.5 19.5 L10.4 17.5 L10.8 14.2 L3 12 L10.8 9.5 Z"/>
+    </svg>
+    <span>SkyMonitor<small>live pozície lietadiel</small></span>
+  </div>
   <input id="search" type="search" placeholder="Hľadať lietadlo (callsign alebo hex)…" autocomplete="off">
-  <label><input type="checkbox" id="hideground"> Skryť na zemi</label>
-  <div class="status" id="status">Načítavam…</div>
+  <label class="toggle"><input type="checkbox" id="hideground"> Skryť na zemi</label>
+  <div class="status"><span class="pulse"></span><span id="status">Načítavam…</span></div>
 </div>
 <div class="legend">
   <span class="dot" style="background:#d43f3f"></span>nízko &nbsp;
@@ -58,7 +98,6 @@
   <span class="dot" style="background:#1e73c8"></span>vyššie &nbsp;
   <span class="dot" style="background:#fff;border:1px solid #999"></span>vybrané
 </div>
-<div id="debug">debug log…</div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="js/app.js"></script>
 </body>
