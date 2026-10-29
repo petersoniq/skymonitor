@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.3.2';
+  var VERSION = '1.4.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -56,12 +56,11 @@
     var opts = ctl ? { signal: ctl.signal, cache: 'no-store' } : { cache: 'no-store' };
     var req = fetch(url, opts).finally(function () { if (timer) clearTimeout(timer); });
     // hard race: aj keď fetch visí (napr. kvôli SW/zdroju), po ms sa pokračuje ďalej
-    return Promise.race([
-      req,
-      new Promise(function (_, reject) {
-        setTimeout(function () { dbg('timeout ' + ms + ' ms – prerušujem'); reject(new Error('timeout')); }, ms);
-      })
-    ]);
+    var raceTimer = new Promise(function (_, reject) {
+      setTimeout(function () { dbg('timeout ' + ms + ' ms – prerušujem'); reject(new Error('timeout')); }, ms);
+    });
+    raceTimer.catch(function () {}); // utlmí osirotené odmietnutie, ak fetch stihol skôr
+    return Promise.race([req, raceTimer]);
   }
 
   function colorFor(altFt) {
@@ -132,7 +131,7 @@
   // ---------- zdroje ----------
   function srcRadius(base, name) {
     var c = map.getCenter();
-    var url = base + '/lat/' + c.lat.toFixed(4) + '/lon/' + c.lon.toFixed(4) + '/dist/' + DIST_NM;
+    var url = base + '/lat/' + c.lat.toFixed(4) + '/lon/' + c.lng.toFixed(4) + '/dist/' + DIST_NM;
     return fetchTimeout(url).then(function (r) {
       dbg('odpoveď ' + name + ' HTTP ' + r.status + ', ' + (r.headers.get('content-length') || '?') + ' B');
       if (!r.ok) throw new Error(name + ' HTTP ' + r.status);
