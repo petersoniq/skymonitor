@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.3.0';
+  var VERSION = '1.3.1';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -52,12 +52,13 @@
     ms = ms || 8000;
     var ctl = new AbortController();
     var timer = setTimeout(function () { ctl.abort(); }, ms);
-    var req = fetch(url, { signal: ctl.signal }).finally(function () { clearTimeout(timer); });
+    dbg('fetch: ' + url);
+    var req = fetch(url, { signal: ctl.signal, cache: 'no-store' }).finally(function () { clearTimeout(timer); });
     // hard race: aj keď fetch visí (napr. kvôli SW/zdroju), po ms sa pokračuje ďalej
     return Promise.race([
       req,
       new Promise(function (_, reject) {
-        setTimeout(function () { reject(new Error('timeout')); }, ms);
+        setTimeout(function () { dbg('timeout ' + ms + ' ms – prerušujem'); reject(new Error('timeout')); }, ms);
       })
     ]);
   }
@@ -135,7 +136,11 @@
       dbg('odpoveď ' + name + ' HTTP ' + r.status + ', ' + (r.headers.get('content-length') || '?') + ' B');
       if (!r.ok) throw new Error(name + ' HTTP ' + r.status);
       return r.json();
-    }).then(function (d) { return (d.ac || []).map(function (a) { return normAdsb(a, name); }); });
+    }).then(function (d) {
+      if (d && d.error) throw new Error(name + ' error: ' + String(d.error).slice(0, 80));
+      var list = d.ac || d.aircraft || [];
+      return list.map(function (a) { return normAdsb(a, name); });
+    });
   }
 
   function fetchAdsbLol() { return srcRadius('https://api.adsb.lol/v2', 'adsb.lol'); }
@@ -160,11 +165,16 @@
   function tryFetch(i) {
     if (i >= SOURCES.length) return Promise.reject(new Error('všetky zdroje zlyhali'));
     status('Načítavám… (' + (i + 1) + '/' + SOURCES.length + ': ' + SRC_NAMES[i] + ')');
+    dbg('skúšam zdroj: ' + SRC_NAMES[i]);
     var fn = SOURCES[i];
     return fn()
       .then(function (arr) {
         attemptLog.push(SRC_NAMES[i] + ': OK (' + arr.length + ')');
         dbg('OK ' + SRC_NAMES[i] + ': ' + arr.length + ' lietadiel');
+        if (arr.length === 0 && i + 1 < SOURCES.length) {
+          dbg(SRC_NAMES[i] + ' vrátil 0 lietadiel, skúšam ďalší zdroj');
+          return tryFetch(i + 1);
+        }
         return arr;
       })
       .catch(function (err) {
