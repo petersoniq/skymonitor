@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.2.2';
+  var VERSION = '1.3.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -33,6 +33,16 @@
   var timer = null;
   var lastFetch = 0;
   var lastSource = '';
+
+  var dbgEl = null;
+  function dbg(msg) {
+    try {
+      if (!dbgEl) dbgEl = document.getElementById('debug');
+      if (!dbgEl) return;
+      var ts = new Date().toLocaleTimeString('sk') + '.' + String(new Date().getMilliseconds()).padStart(3, '0');
+      dbgEl.textContent = ts + '  ' + msg + '\n' + dbgEl.textContent;
+    } catch (e) {}
+  }
 
   function status(msg) {
     document.getElementById('status').innerHTML = msg + ' <small>v' + VERSION + '</small>';
@@ -122,6 +132,7 @@
     var c = map.getCenter();
     var url = base + '/lat/' + c.lat.toFixed(4) + '/lon/' + c.lon.toFixed(4) + '/dist/' + DIST_NM;
     return fetchTimeout(url).then(function (r) {
+      dbg('odpoveď ' + name + ' HTTP ' + r.status + ', ' + (r.headers.get('content-length') || '?') + ' B');
       if (!r.ok) throw new Error(name + ' HTTP ' + r.status);
       return r.json();
     }).then(function (d) { return (d.ac || []).map(function (a) { return normAdsb(a, name); }); });
@@ -153,10 +164,12 @@
     return fn()
       .then(function (arr) {
         attemptLog.push(SRC_NAMES[i] + ': OK (' + arr.length + ')');
+        dbg('OK ' + SRC_NAMES[i] + ': ' + arr.length + ' lietadiel');
         return arr;
       })
       .catch(function (err) {
         attemptLog.push(SRC_NAMES[i] + ': ' + err.message);
+        dbg('CHYBA ' + SRC_NAMES[i] + ': ' + err.message);
         return tryFetch(i + 1);
       });
   }
@@ -314,8 +327,13 @@
       });
   });
 
+  dbg('SkyMonitor v' + VERSION + ' štart');
+  if (navigator.serviceWorker.controller) dbg('SW aktívny: ' + (navigator.serviceWorker.controller.scriptURL || ''));
+  else dbg('žiadny SW controller');
+  dbg('online: ' + navigator.onLine);
+
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(function () {});
+    navigator.serviceWorker.register('sw.js').then(function (r) { dbg('SW zaregistrovaný'); }).catch(function (e) { dbg('SW chyba: ' + e.message); });
   }
 
   fetchStates();
