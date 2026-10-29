@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.4.2';
+  var VERSION = '1.4.3';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -147,6 +147,21 @@
   }
 
   function fetchAdsbLol() { return srcRadius('https://api.adsb.lol/v2', 'adsb.lol'); }
+
+  function fetchViaProxy() {
+    var c = map.getCenter();
+    var target = 'https://api.adsb.lol/v2/lat/' + c.lat.toFixed(4) + '/lon/' + c.lng.toFixed(4) + '/dist/' + DIST_NM;
+    var url = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(target);
+    return fetchTimeout(url).then(function (r) {
+      dbg('odpoveď proxy HTTP ' + r.status);
+      if (!r.ok) throw new Error('proxy HTTP ' + r.status);
+      return r.json();
+    }).then(function (d) {
+      if (d && d.error) throw new Error('proxy error');
+      var list = d.ac || d.aircraft || [];
+      return list.map(function (a) { return normAdsb(a, 'adsb.lol (proxy)'); });
+    });
+  }
   function fetchAdsbFi() { return srcRadius('https://opendata.adsb.fi/api/v2', 'adsb.fi'); }
   function fetchAirplanesLive() { return srcRadius('https://api.airplanes.live/v2', 'airplanes.live'); }
 
@@ -161,8 +176,8 @@
     }).then(function (d) { return (d.states || []).map(normOpenSky); });
   }
 
-  var SOURCES = [fetchAdsbLol, fetchAdsbFi, fetchAirplanesLive, fetchOpenSky];
-  var SRC_NAMES = ['adsb.lol', 'adsb.fi', 'airplanes.live', 'OpenSky'];
+  var SOURCES = [fetchAdsbLol, fetchAdsbFi, fetchAirplanesLive, fetchOpenSky, fetchViaProxy];
+  var SRC_NAMES = ['adsb.lol', 'adsb.fi', 'airplanes.live', 'OpenSky', 'proxy'];
   var attemptLog = [];
 
   function tryFetch(i) {
