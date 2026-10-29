@@ -1,0 +1,15 @@
+{
+  "name": "SkyMonitor",
+  "short_name": "SkyMonitor",
+  "description": "Aktuálne pozície lietadiel na mape (OpenSky Network + OpenStreetMap).",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b3d5c",
+  "theme_color": "#0b3d5c",
+  "lang": "sk",
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "version": "1.0.0"
+}
