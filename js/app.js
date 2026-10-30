@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2.3.0';
+  var VERSION = '3.0.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -54,7 +54,7 @@
     if (markers[icao24]) {
       var p = planes[icao24];
       markers[icao24].setIcon(planeIcon(p.track, p.altFt, icao24 === selected, !!favs[icao24]));
-      markers[icao24].setPopupContent(popupHtml(p));
+      if (icao24 === selected) openSheet(p);
     }
   };
 
@@ -101,7 +101,7 @@
       '<g transform="rotate(' + (heading || 0) + ' 12 12)">' +
       '<path fill="' + c + '" stroke="#fff" stroke-width="0.7" d="M12 2 L13.2 9.5 L21 12 L13.2 14.2 L13.6 17.5 L15.5 19.5 L12 18.8 L8.5 19.5 L10.4 17.5 L10.8 14.2 L3 12 L10.8 9.5 Z"/>' +
       '</g>' + star + '</svg>';
-    return L.divIcon({ className: 'plane-icon', html: svg, iconSize: [26, 26], iconAnchor: [13, 13] });
+    return L.divIcon({ className: 'plane-icon', html: svg, iconSize: [32, 32], iconAnchor: [16, 16] });
   }
 
   function fmt(v, u) { return (v == null ? '–' : (typeof v === 'number' ? Math.round(v) : v) + (u ? ' ' + u : '')); }
@@ -285,6 +285,62 @@
       });
   }
 
+  // ---------- detailný panel (spodný sheet) ----------
+  var sheetEl = null;
+  function closeSheet() { if (sheetEl) sheetEl.classList.remove('open'); }
+  function openSheet(a) {
+    if (!a) return;
+    if (!sheetEl) sheetEl = document.getElementById('sheet');
+    if (!sheetEl) return;
+    var cs = (a.callsign || '').trim() || a.icao24;
+    document.getElementById('sheetTitle').textContent = cs.toUpperCase();
+    var sub = [];
+    if (a.reg) sub.push(a.reg);
+    if (a.type) sub.push(a.type);
+    if (a.country) sub.push(a.country);
+    document.getElementById('sheetSub').textContent = sub.join(' · ') || ('hex ' + a.icao24);
+    document.getElementById('sheetBody').innerHTML = sheetBodyHtml(a);
+    sheetEl.classList.add('open');
+  }
+  window.__skySheetClose = function () { selected = null; closeSheet(); drawTrail(); renderSelection(); };
+
+  function sheetBodyHtml(a) {
+    var cell = function (l, v) {
+      return '<div class="cell"><span>' + l + '</span><b>' + v + '</b></div>';
+    };
+    var altFt = a.altFt != null ? Math.round(a.altFt) : '–';
+    var altM = a.altFt != null ? Math.round(a.altFt / FT) : '–';
+    var spd = a.speedKmh != null ? Math.round(a.speedKmh) : '–';
+    var gsKt = a.speedKt != null ? Math.round(a.speedKt) : '–';
+    var vr = a.vrateFpm != null ? Math.round(a.vrateFpm) : '–';
+    var vrA = a.vrateFpm > 100 ? '▲' : (a.vrateFpm < -100 ? '▼' : '●');
+    var trk = a.track != null ? Math.round(a.track) + '°' : '–';
+    var html = '';
+    if (a.emergency && a.emergency !== 'none') html += '<div class="alert">⚠ NÚDZOVÝ STAV: ' + a.emergency + '</div>';
+    html += '<div class="sheet-grid">' +
+      cell('Výška', altFt + ' ft') +
+      cell('Výška (m)', altM + ' m') +
+      cell('Rýchlosť', spd + ' km/h') +
+      cell('Rýchlosť (kt)', gsKt + ' kt') +
+      cell('Stúp./kles.', vrA + ' ' + vr + ' ft/min') +
+      cell('Kurz', trk) +
+      cell('Squawk', a.squawk || '–') +
+      cell('Stav', a.onGround ? 'na zemi' : 'v lete') +
+    '</div>';
+    var links = '';
+    if (a.reg) {
+      links += '<a class="btn ghost" href="https://www.planespotters.net/search?q=' + encodeURIComponent(a.reg) + '" target="_blank" rel="noopener">📷 Fotografie</a>';
+      links += '<a class="btn ghost" href="https://www.flightradar24.com/' + encodeURIComponent(a.reg) + '" target="_blank" rel="noopener">🔎 FR24</a>';
+    }
+    html += '<div class="sheet-actions">' +
+      '<button class="btn' + (follow === a.icao24 ? ' on' : '') + '" onclick="window.__skyFollow(&#39;' + a.icao24 + '&#39;)">' + (follow === a.icao24 ? '⏹ Ukončiť sledovanie' : '🎯 Sledovať') + '</button>' +
+      '<button class="btn fav' + (favs[a.icao24] ? ' on' : '') + '" onclick="window.__skyFav(&#39;' + a.icao24 + '&#39;)">' + (favs[a.icao24] ? '★ V obľúbených' : '☆ Obľúbené') + '</button>' +
+      links +
+    '</div>';
+    html += '<div class="sheet-foot">' + a.src + ' • dráha: ' + ((a.trail || []).length) + ' bodov</div>';
+    return html;
+  }
+
   // ---------- vykreslenie ----------
   function updateTrail(a) {
     var p = planes[a.icao24];
@@ -321,13 +377,11 @@
       if (markers[a.icao24]) {
         markers[a.icao24].setLatLng([a.lat, a.lon]);
         markers[a.icao24].setIcon(planeIcon(a.track, a.altFt, isSel, !!favs[a.icao24]));
-        markers[a.icao24].setPopupContent(popupHtml(a));
+        if (selected === a.icao24) openSheet(a);
       } else {
         var m = L.marker([a.lat, a.lon], { icon: planeIcon(a.track, a.altFt, isSel, !!favs[a.icao24]) })
-          .addTo(map)
-          .bindPopup(popupHtml(a));
-        m.on('click', function () { selected = a.icao24; drawTrail(); renderSelection(); });
-        m.on('popupclose', function () { selected = null; drawTrail(); renderSelection(); });
+          .addTo(map);
+        m.on('click', function () { selected = a.icao24; drawTrail(); renderSelection(); openSheet(planes[a.icao24]); });
         markers[a.icao24] = m;
       }
     });
@@ -336,7 +390,7 @@
         map.removeLayer(markers[k]);
         delete markers[k];
         delete planes[k];
-        if (selected === k) { selected = null; drawTrail(); }
+        if (selected === k) { selected = null; drawTrail(); closeSheet(); }
         if (follow === k) follow = null;
       }
     });
@@ -387,13 +441,14 @@
   var mapEl = map.getContainer();
   map.on('zoomstart', function () { mapEl.classList.add('zooming'); });
   map.on('zoomend', function () { mapEl.classList.remove('zooming'); });
+  map.on('click', function () { if (selected) { selected = null; closeSheet(); drawTrail(); renderSelection(); } });
   map.on('dragstart', function () { follow = null; });
 
   // sledovanie z popupu
   window.__skyFollow = function (icao24) {
     follow = (follow === icao24) ? null : icao24;
     if (follow && planes[follow]) map.setView([planes[follow].lat, planes[follow].lon], Math.max(map.getZoom(), 8), { animate: true });
-    if (markers[icao24]) markers[icao24].setPopupContent(popupHtml(planes[icao24]));
+    if (icao24 === selected && planes[icao24]) openSheet(planes[icao24]);
   };
 
   // filter: skryť na zemi
@@ -426,7 +481,7 @@
         renderStates(hits);
         selected = a.icao24;
         map.setView([a.lat, a.lon], 9, { animate: true });
-        if (markers[a.icao24]) { markers[a.icao24].setPopupContent(popupHtml(a)); markers[a.icao24].openPopup(); }
+        if (markers[a.icao24]) { openSheet(a); }
         status('Nájdené: ' + hits.length + ' lietadiel');
       })
       .catch(function () {
