@@ -10,7 +10,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '3.3.1';
+  var VERSION = '3.4.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -47,10 +47,44 @@
   map.on('dragstart', unlockMap);
   map.on('wheel', function (e) { if (e.originalEvent && e.originalEvent.deltaY > 0) unlockMap(); });
 
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 18,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | Data: adsb.lol / adsb.fi / airplanes.live / OpenSky | Trasy: adsbdb'
-  }).addTo(map);
+  // ---------- téma mapy ----------
+  var tileLayer = null, darkTiles = false;
+  var TILES = {
+    light: {
+      url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      attr: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | Data: adsb.lol / adsb.fi / airplanes.live / OpenSky | Trasy: adsbdb'
+    },
+    dark: {
+      url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+      attr: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a> | Data: adsb.lol / adsb.fi / airplanes.live / OpenSky | Trasy: adsbdb'
+    }
+  };
+  function setTheme(dark) {
+    darkTiles = dark;
+    try { localStorage.setItem('skymon-theme', dark ? 'dark' : 'light'); } catch (e) {}
+    var b = document.getElementById('themeBtn'); if (b) b.textContent = dark ? '☀️' : '🌙';
+    var t = dark ? TILES.dark : TILES.light;
+    if (tileLayer) map.removeLayer(tileLayer);
+    tileLayer = L.tileLayer(t.url, { maxZoom: 18, attribution: t.attr }).addTo(map);
+  }
+  window.__skyTheme = function () { setTheme(!darkTiles); };
+
+  // ---------- moja poloha ----------
+  var myPos = null, myMarker = null;
+  window.__skyLocate = function () {
+    if (!navigator.geolocation) { status('Geolokácia nie je podporovaná'); return; }
+    status('Zisťujem polohu…');
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      myPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+      if (myMarker) map.removeLayer(myMarker);
+      myMarker = L.circleMarker([myPos.lat, myPos.lon], { radius: 8, color: '#fff', weight: 3, fillColor: '#4aa3e8', fillOpacity: 1 })
+        .addTo(map).bindTooltip('📍 Moja poloha');
+      unlockMap();
+      map.setView([myPos.lat, myPos.lon], Math.max(map.getZoom(), 9), { animate: true });
+      status('Poloha zistená');
+      if (selected && planes[selected]) openSheet(planes[selected]);
+    }, function (err) { status('Poloha: ' + err.message); }, { enableHighAccuracy: true, timeout: 10000 });
+  };
 
   var markers = {};
   var planes = {};          // icao24 -> data (aj s trailom)
@@ -81,6 +115,81 @@
       markers[icao24].setIcon(planeIcon(p.track, p.altFt, icao24 === selected, !!favs[icao24]));
       if (icao24 === selected) openSheet(p);
     }
+  };
+
+  // ---------- kategórie lietadiel + fotografie ----------
+  var CATEGORIES = {
+    A1: 'ľahké', A2: 'malé', A3: 'stredné (A320/B737)', A4: 'veľké (B757/B767)',
+    A5: 'ťažké (A350/B787)', A6: 'veľmi ťažké (A380/B747)', A7: 'vysokorýchlostné',
+    B1: 'klzák', B2: 'balón', B3: 'padák', B4: 'drôt/VTOL',
+    C1: 'vrtuľník', C2: 'dron (UAV)', C3: 'núdzové vozidlo'
+  };
+  var photoCache = {};
+  function ensurePhoto(a) {
+    var hex = a.icao24;
+    if (hex in photoCache) return;
+    photoCache[hex] = null;
+    fetchTimeout('https://api.planespotters.net/pub/photos/hex/' + hex, 9000)
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (d) {
+        var p = d && d.photos && d.photos[0];
+        photoCache[hex] = p ? {
+          src: (p.thumbnail_large && p.thumbnail_large.src) || (p.thumbnail && p.thumbnail.src) || null,
+          link: p.link || 'https://www.planespotters.net',
+          by: p.photographer || 'planespotters.net'
+        } : null;
+        if (p && photoCache[hex].src && selected === hex) openSheet(planes[hex] || a);
+      })
+      .catch(function () { photoCache[hex] = null; });
+  }
+
+  // ---------- panel obľúbených ----------
+  window.__skyFavPanel = function () {
+    var panel = document.getElementById('favPanel');
+    var out = document.getElementById('favOut');
+    if (!panel || !out) return;
+    panel.style.display = 'flex';
+    var list = Object.keys(favs);
+    if (!list.length) { out.innerHTML = '<div class="favempty">Zatiaľ nemáš žiadne obľúbené lietadlá.<br>Klepni na lietadlo na mape a pridaj ho tlačidlom ☆ Obľúbené.</div>'; return; }
+    out.innerHTML = '';
+    list.forEach(function (hex) {
+      var p = planes[hex] || {};
+      var cs = (p.callsign || '').trim() || hex;
+      var line = document.createElement('div');
+      line.className = 'favrow';
+      var info = document.createElement('div');
+      info.innerHTML = '<b>' + cs.toUpperCase() + '</b><span>' + (p.reg || '') + (p.altFt != null ? ' · ' + Math.round(p.altFt) + ' ft' : '') + '</span>';
+      var btn = document.createElement('button');
+      btn.textContent = p.lat != null ? '📍 Zobraziť' : '🔎 Nájsť';
+      btn.onclick = function () { window.__skyShowFav(hex); };
+      line.appendChild(info); line.appendChild(btn);
+      out.appendChild(line);
+    });
+  };
+  window.__skyFavPanelClose = function () { var p = document.getElementById('favPanel'); if (p) p.style.display = 'none'; };
+  window.__skyShowFav = function (hex) {
+    window.__skyFavPanelClose();
+    if (planes[hex] && planes[hex].lat != null) {
+      selected = hex;
+      unlockMap();
+      map.setView([planes[hex].lat, planes[hex].lon], Math.max(map.getZoom(), 9), { animate: true });
+      drawTrail(); renderSelection(); openSheet(planes[hex]);
+      return;
+    }
+    status('Hľadám ' + hex + '…');
+    fetchTimeout('https://api.adsb.lol/v2/hex/' + hex)
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var hits = (d.ac || []).filter(function (a) { return a.lat != null; }).map(function (a) { return normAdsb(a, 'adsb.lol'); });
+        if (!hits.length) throw new Error('nenájdené');
+        unlockMap();
+        renderStates(hits);
+        selected = hex;
+        map.setView([hits[0].lat, hits[0].lon], 9, { animate: true });
+        drawTrail(); renderSelection(); openSheet(planes[hex]);
+        status('Nájdené: ' + hits.length);
+      })
+      .catch(function (err) { status('Nepodarilo sa nájsť: ' + err.message); });
   };
 
   function dbg(msg) {
@@ -246,6 +355,7 @@
       onGround: (a.alt_baro === 'ground'),
       speedKt: a.gs, speedKmh: (a.gs != null ? a.gs * 1.852 : null),
       track: a.track, vrateFpm: a.baro_rate, squawk: a.squawk,
+      mach: (a.mach != null ? a.mach : null), oat: (a.oat != null ? a.oat : null), category: a.category || null,
       emergency: a.emergency, src: src
     };
   }
@@ -435,6 +545,7 @@
     document.getElementById('sheetBody').innerHTML = sheetBodyHtml(a);
     sheetEl.classList.add('open');
     ensureRoute(a);
+    ensurePhoto(a);
     drawAirports(a);
   }
   window.__skySheetClose = function () { selected = null; closeSheet(); drawTrail(); renderSelection(); };
@@ -479,6 +590,10 @@
       html += '<div class="routeline muted">Trasa neznáma <small>(adsbdb nemá pre tento callsign letovú trasu)</small></div>';
     }
 
+    var ph = photoCache[a.icao24];
+    if (ph && ph.src) {
+      html += '<a class="plane-photo" href="' + ph.link + '" target="_blank" rel="noopener"><img src="' + ph.src + '" alt="Fotografia lietadla" loading="lazy"></a><div class="photo-credit">📷 ' + ph.by + ' · planespotters.net</div>';
+    }
     html += '<div class="sheet-grid">' + progCells +
       cell('Výška', altFt + ' ft') +
       cell('Výška (m)', altM + ' m') +
@@ -488,6 +603,10 @@
       cell('Kurz', trk) +
       cell('Squawk', a.squawk || '–') +
       cell('Stav', a.onGround ? 'na zemi' : 'v lete') +
+      (a.mach != null ? cell('Mach', a.mach) : '') +
+      (a.oat != null ? cell('Teplota', Math.round(a.oat) + ' °C') : '') +
+      (a.category && CATEGORIES[a.category] ? cell('Kategória', CATEGORIES[a.category]) : '') +
+      (myPos && a.lat != null ? cell('Odo mňa', Math.round(distKm(myPos.lat, myPos.lon, a.lat, a.lon)) + ' km') : '') +
     '</div>';
     var links = '';
     if (a.reg) {
@@ -733,6 +852,8 @@
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').then(function (r) { dbg('SW zaregistrovaný'); }).catch(function (e) { dbg('SW chyba: ' + e.message); });
   }
+
+  setTheme((function () { try { return localStorage.getItem('skymon-theme') === 'dark'; } catch (e) { return false; } })());
 
   fetchStates();
   timer = setTimeout(refresh, REFRESH_MS);
