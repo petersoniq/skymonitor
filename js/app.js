@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2.1.0';
+  var VERSION = '2.1.1';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -178,7 +178,7 @@
     var c = map.getCenter();
     var target = 'https://api.adsb.lol/v2/lat/' + c.lat.toFixed(4) + '/lon/' + c.lng.toFixed(4) + '/dist/' + DIST_NM;
     var url = 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(target);
-    return fetchTimeout(url, 14000).then(function (r) {
+    return fetchTimeout(url, 30000).then(function (r) {
       if (!r.ok) throw new Error('proxy2 HTTP ' + r.status);
       return r.json();
     }).then(function (d) {
@@ -188,18 +188,35 @@
     });
   }
 
+  function parseProxyJson(d) {
+    if (d && typeof d.contents === 'string') d = JSON.parse(d.contents); // allorigins /get wrapper
+    if (d && d.error) throw new Error('proxy error');
+    var list = (d && (d.ac || d.aircraft)) || [];
+    return list.map(function (a) { return normAdsb(a, 'adsb.lol (proxy)'); });
+  }
+
   function fetchViaProxy() {
     var c = map.getCenter();
     var target = 'https://api.adsb.lol/v2/lat/' + c.lat.toFixed(4) + '/lon/' + c.lng.toFixed(4) + '/dist/' + DIST_NM;
-    var url = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(target);
-    return fetchTimeout(url, 14000).then(function (r) {
-      dbg('odpoveď proxy HTTP ' + r.status);
-      if (!r.ok) throw new Error('proxy HTTP ' + r.status);
-      return r.json();
-    }).then(function (d) {
-      if (d && d.error) throw new Error('proxy error');
-      var list = d.ac || d.aircraft || [];
-      return list.map(function (a) { return normAdsb(a, 'adsb.lol (allorigins)'); });
+    var urls = [
+      { name: 'allorigins', u: 'https://api.allorigins.win/raw?url=' + encodeURIComponent(target) },
+      { name: 'codetabs', u: 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(target) },
+      { name: 'allorigins-get', u: 'https://api.allorigins.win/get?url=' + encodeURIComponent(target) },
+      { name: 'thingproxy', u: 'https://thingproxy.freeboard.io/fetch/' + target }
+    ];
+    var jobs = urls.map(function (x) {
+      return fetchTimeout(x.u, 30000).then(function (r) {
+        if (!r.ok) throw new Error(x.name + ' HTTP ' + r.status);
+        return r.json();
+      }).then(parseProxyJson);
+    });
+    // hedged: použije prvý proxy, ktorý odpovie; čaká max. 30 s
+    return new Promise(function (resolve, reject) {
+      var pending = jobs.length, done = false, errs = [];
+      jobs.forEach(function (j) {
+        j.then(function (arr) { if (!done) { done = true; resolve(arr); } },
+              function (e) { errs.push(e.message); if (--pending === 0 && !done) { done = true; reject(new Error('proxy: ' + errs.slice(0, 3).join(' | '))); } });
+      });
     });
   }
   function fetchAdsbFi() { return srcRadius('https://opendata.adsb.fi/api/v2', 'adsb.fi'); }
