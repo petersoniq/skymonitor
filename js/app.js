@@ -10,7 +10,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '3.5.0';
+  var VERSION = '3.6.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -112,8 +112,67 @@
     saveFavs();
     if (markers[icao24]) {
       var p = planes[icao24];
-      markers[icao24].setIcon(planeIcon(p.track, p.altFt, icao24 === selected, !!favs[icao24]));
+      markers[icao24].setIcon(planeIcon(p.track, p.altFt, icao24 === selected, !!favs[icao24], !!pins[icao24]));
       if (icao24 === selected) openSheet(p);
+    }
+  };
+
+  // ---------- pripnuté lietadlá (trasy natrvalo na mape) ----------
+  function loadPins() { try { return JSON.parse(localStorage.getItem('skymon-pins') || '{}'); } catch (e) { return {}; } }
+  function savePins() { try { localStorage.setItem('skymon-pins', JSON.stringify(pins)); } catch (e) {} }
+  var pins = loadPins();
+  var pinLayer = null;
+  // body po veľkej kružnici medzi letiskami – "skutočná" trasa
+  function gcPoints(la1, lo1, la2, lo2) {
+    var R = Math.PI / 180, D = 180 / Math.PI, n = 64, pts = [];
+    var p1 = la1 * R, l1 = lo1 * R, p2 = la2 * R, l2 = lo2 * R;
+    var d = 2 * Math.asin(Math.sqrt(Math.pow(Math.sin((p2 - p1) / 2), 2) + Math.cos(p1) * Math.cos(p2) * Math.pow(Math.sin((l2 - l1) / 2), 2)));
+    if (!d) return [[la1, lo1], [la2, lo2]];
+    for (var i = 0; i <= n; i++) {
+      var f = i / n;
+      var A = Math.sin((1 - f) * d) / Math.sin(d), B = Math.sin(f * d) / Math.sin(d);
+      var x = A * Math.cos(p1) * Math.cos(l1) + B * Math.cos(p2) * Math.cos(l2);
+      var y = A * Math.cos(p1) * Math.sin(l1) + B * Math.cos(p2) * Math.sin(l2);
+      var z = A * Math.sin(p1) + B * Math.sin(p2);
+      pts.push([Math.atan2(z, Math.sqrt(x * x + y * y)) * D, Math.atan2(y, x) * D]);
+    }
+    return pts;
+  }
+  function renderPins() {
+    if (pinLayer) { map.removeLayer(pinLayer); pinLayer = null; }
+    var keys = Object.keys(pins);
+    if (!keys.length) return;
+    pinLayer = L.layerGroup().addTo(map);
+    keys.forEach(function (hex) {
+      var rt = pins[hex];
+      if (!rt || !rt.from || !rt.to) return;
+      [[rt.from, '🛫', '#1e73c8'], [rt.to, '🛬', '#d43f3f']].forEach(function (x) {
+        var info = x[0];
+        if (info.lat == null) return;
+        L.circleMarker([info.lat, info.lon], { radius: 5, color: '#fff', weight: 2, fillColor: x[2], fillOpacity: 1 })
+          .addTo(pinLayer).bindTooltip(x[1] + ' ' + info.name + ' (' + info.icao + ')', { direction: 'top' });
+      });
+      if (rt.from.lat != null && rt.to.lat != null) {
+        L.polyline(gcPoints(rt.from.lat, rt.from.lon, rt.to.lat, rt.to.lon), { color: '#00897b', weight: 2.5, opacity: 0.85 })
+          .addTo(pinLayer).bindTooltip('📌 ' + ((planes[hex] && (planes[hex].callsign || '').trim()) || hex).toUpperCase());
+      }
+    });
+  }
+  window.__skyPin = function (hex) {
+    if (pins[hex]) {
+      delete pins[hex];
+    } else {
+      var p = planes[hex];
+      var cs = p ? (p.callsign || '').trim() : '';
+      pins[hex] = (p && p.fromTo) ? p.fromTo : (routeCache[cs] || null);
+      if (p && !p.fromTo) ensureRoute(p);
+    }
+    savePins();
+    renderPins();
+    if (markers[hex]) {
+      var pp = planes[hex];
+      markers[hex].setIcon(planeIcon(pp.track, pp.altFt, hex === selected, !!favs[hex], !!pins[hex]));
+      if (hex === selected) openSheet(pp);
     }
   };
 
@@ -228,11 +287,13 @@
     return ICON_COLORS[0];
   }
 
-  function planeIcon(heading, altFt, isSel, isFav) {
+  function planeIcon(heading, altFt, isSel, isFav, isPin) {
     var c = colorFor(altFt);
-    var ring = isFav
-      ? '<circle cx="12" cy="12" r="10.5" fill="none" stroke="#f5b301" stroke-width="1.4"/>'
-      : (isSel ? '<circle cx="12" cy="12" r="10.5" fill="none" stroke="#d43f3f" stroke-width="1.2"/>' : '');
+    var ring = isPin
+      ? '<circle cx="12" cy="12" r="10.5" fill="none" stroke="#8e24aa" stroke-width="1.6"/>'
+      : (isFav
+        ? '<circle cx="12" cy="12" r="10.5" fill="none" stroke="#f5b301" stroke-width="1.4"/>'
+        : (isSel ? '<circle cx="12" cy="12" r="10.5" fill="none" stroke="#d43f3f" stroke-width="1.2"/>' : ''));
     var star = isFav ? '<path d="M19.5 4.6 L18.1 7.4 L15 7.9 L17.3 10.1 L16.7 13.2 L19.5 11.7 L22.3 13.2 L21.7 10.1 L24 7.9 L20.9 7.4 Z" fill="#f5b301" stroke="#fff" stroke-width="0.5" transform="scale(0.72) translate(1 1)"/>' : '';
     var svg =
       '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">' +
@@ -343,6 +404,7 @@
           if (v) {
             var p = planes[a.icao24];
             if (p) p.fromTo = v;
+            if (pins[a.icao24]) { pins[a.icao24] = v; savePins(); renderPins(); }
             if (selected === a.icao24) openSheet(planes[a.icao24] || a);
           }
         })
@@ -532,8 +594,8 @@
         radius: 7, color: '#fff', weight: 2.5, fillColor: x[2], fillOpacity: 1
       }).addTo(airportLayer).bindTooltip(x[1] + ' ' + info.name + ' (' + info.icao + ')', { direction: 'top' });
     });
-    if (pts.length === 2) {
-      L.polyline(pts, { color: '#1e73c8', weight: 2, dashArray: '6 6', opacity: 0.75 }).addTo(airportLayer);
+    if (rt.from.lat != null && rt.to.lat != null) {
+      L.polyline(gcPoints(rt.from.lat, rt.from.lon, rt.to.lat, rt.to.lon), { color: '#1e73c8', weight: 2, dashArray: '6 6', opacity: 0.75 }).addTo(airportLayer);
     }
   }
   function openSheet(a) {
@@ -621,6 +683,7 @@
     }
     html += '<div class="sheet-actions">' +
       '<button class="btn' + (follow === a.icao24 ? ' on' : '') + '" onclick="window.__skyFollow(&#39;' + a.icao24 + '&#39;)">' + (follow === a.icao24 ? '⏹ Ukončiť sledovanie' : '🎯 Sledovať') + '</button>' +
+      '<button class="btn pin' + (pins[a.icao24] ? ' on' : '') + '" onclick="window.__skyPin(&#39;' + a.icao24 + '&#39;)">' + (pins[a.icao24] ? '📌 Odopnúť' : '📌 Pripnúť trasu') + '</button>' +
       '<button class="btn fav' + (favs[a.icao24] ? ' on' : '') + '" onclick="window.__skyFav(&#39;' + a.icao24 + '&#39;)">' + (favs[a.icao24] ? '★ V obľúbených' : '☆ Obľúbené') + '</button>' +
       links +
     '</div>';
@@ -665,10 +728,10 @@
       var isSel = (selected === a.icao24);
       if (markers[a.icao24]) {
         markers[a.icao24].setLatLng([a.lat, a.lon]);
-        markers[a.icao24].setIcon(planeIcon(a.track, a.altFt, isSel, !!favs[a.icao24]));
+        markers[a.icao24].setIcon(planeIcon(a.track, a.altFt, isSel, !!favs[a.icao24], !!pins[a.icao24]));
         if (selected === a.icao24) openSheet(a);
       } else {
-        var m = L.marker([a.lat, a.lon], { icon: planeIcon(a.track, a.altFt, isSel, !!favs[a.icao24]) })
+        var m = L.marker([a.lat, a.lon], { icon: planeIcon(a.track, a.altFt, isSel, !!favs[a.icao24], !!pins[a.icao24]) })
           .addTo(map);
         m.on('click', function () { selected = a.icao24; drawTrail(); renderSelection(); openSheet(planes[a.icao24]); });
         markers[a.icao24] = m;
@@ -684,12 +747,13 @@
       }
     });
     drawTrail();
+    renderPins();
   }
 
   function renderSelection() {
     Object.keys(markers).forEach(function (k) {
       var p = planes[k];
-      if (markers[k]) markers[k].setIcon(planeIcon(p.track, p.altFt, k === selected, !!favs[k]));
+      if (markers[k]) markers[k].setIcon(planeIcon(p.track, p.altFt, k === selected, !!favs[k], !!pins[k]));
     });
   }
 
@@ -860,6 +924,7 @@
   }
 
   setTheme((function () { try { return localStorage.getItem('skymon-theme') === 'dark'; } catch (e) { return false; } })());
+  renderPins();
 
   fetchStates();
   timer = setTimeout(refresh, REFRESH_MS);
