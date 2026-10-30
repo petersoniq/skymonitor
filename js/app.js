@@ -10,7 +10,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '3.7.0';
+  var VERSION = '3.8.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -688,6 +688,17 @@
       }
     } else {
       html += '<div class="routeline muted">Trasa neznáma <small>(adsbdb nemá pre tento callsign letovú trasu)</small></div>';
+    }
+
+    // overenie: poloha by mala ležať zhruba na trase (callsigny sa denne opakujú, adsbdb môže mať iný sektor)
+    if (rt && rt.from.lat != null && rt.to.lat != null && a.lat != null) {
+      var gpts = gcPoints(rt.from.lat, rt.from.lon, rt.to.lat, rt.to.lon);
+      var minD = Infinity;
+      gpts.forEach(function (pt) { var d = distKm(a.lat, a.lon, pt[0], pt[1]); if (d < minD) minD = d; });
+      var nearEnd = (distKm(a.lat, a.lon, rt.from.lat, rt.from.lon) < 150) || (distKm(a.lat, a.lon, rt.to.lat, rt.to.lon) < 150);
+      if (!nearEnd && minD > 250) {
+        html += '<div class="routewarn">⚠ Pozícia je ~' + Math.round(minD) + ' km mimo trasy ' + rt.from.icao + ' → ' + rt.to.icao + '. Callsigny aeroliniek sa denne opakujú – zobrazená trasa z databázy adsbdb zodpovedá možno inému sektoru/dňu. Poloha lietadla je priamo z ADS-B a je pravá.</div>';
+      }
     }
 
     var ph = photoCache[a.icao24];
