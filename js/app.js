@@ -4,12 +4,13 @@
  *   2. adsb.fi       https://opendata.adsb.fi
  *   3. airplanes.live https://api.airplanes.live
  *   4. OpenSky        https://opensky-network.org
+ *   Trasy letov:      https://api.adsbdb.com (flightroute)
  * Map: Leaflet + OpenStreetMap
  */
 (function () {
   'use strict';
 
-  var VERSION = '3.2.0';
+  var VERSION = '3.3.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -48,7 +49,7 @@
 
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 18,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | Data: adsb.lol / adsb.fi / airplanes.live / OpenSky'
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | Data: adsb.lol / adsb.fi / airplanes.live / OpenSky | Trasy: adsbdb'
   }).addTo(map);
 
   var markers = {};
@@ -56,6 +57,7 @@
   var selected = null;      // icao24 vybraného lietadla
   var follow = null;        // icao24 sledovaného lietadla
   var trailLayer = null;
+  var airportLayer = null;  // zvýraznenie letísk vybraného lietadla
   var hideGround = false;
   var inFlight = false;
   var pending = false;
@@ -97,11 +99,10 @@
     dbg('fetch: ' + url + (ctl ? '' : ' (bez AbortController)'));
     var opts = ctl ? { signal: ctl.signal, cache: 'no-store' } : { cache: 'no-store' };
     var req = fetch(url, opts).finally(function () { if (timer) clearTimeout(timer); });
-    // hard race: aj keď fetch visí (napr. kvôli SW/zdroju), po ms sa pokračuje ďalej
     var raceTimer = new Promise(function (_, reject) {
       setTimeout(function () { dbg('timeout ' + ms + ' ms – prerušujem'); reject(new Error('timeout')); }, ms);
     });
-    raceTimer.catch(function () {}); // utlmí osirotené odmietnutie, ak fetch stihol skôr
+    raceTimer.catch(function () {});
     return Promise.race([req, raceTimer]);
   }
 
@@ -129,68 +130,102 @@
 
   function fmt(v, u) { return (v == null ? '–' : (typeof v === 'number' ? Math.round(v) : v) + (u ? ' ' + u : '')); }
 
-  // ---------- trasa letu (ICAO -> názov letiska) ----------
+  // ---------- trasa letu ----------
+  // ICAO -> [názov, lat, lon] (približné polohy letísk pre vzdialenosti a zvýraznenie)
   var AIRPORTS = {
-    LZIB: 'Bratislava', LZKZ: 'Košice', LZTT: 'Poprad', LZPW: 'Piešťany', LZSL: 'Sliač',
-    LZTN: 'Trenčín', LZZI: 'Žilina', LZLU: 'Lučenec', LZMC: 'Malacky', LZNI: 'Nitra',
-    LOWW: 'Viedeň', LHBP: 'Budapešť', LKPR: 'Praha', LKBR: 'Brno', LKMT: 'Ostrava',
-    EPKK: 'Krakov', EPKT: 'Katovice', EPWA: 'Varšava', EPRA: 'Radom', LRAR: 'Arad',
-    LRSM: 'Satu Mare', LROP: 'Bukurešť', LRCL: 'Kluž', LRSB: 'Sibiu', LRBS: 'Bukurešť Băneasa',
-    LYBE: 'Belehrad', LYTV: 'Niš', LYPG: 'Podgorica',
-    LSZH: 'Zürich', LSGG: 'Ženeva', LSMY: 'Sion',
-    EDDF: 'Frankfurt', EDDM: 'Mníchov', EDDL: 'Düsseldorf', EDDT: 'Berlín Tegel',
-    EDDP: 'Lipsko', EDDK: 'Kolín', EDDB: 'Berlín', EDDN: 'Norimberg', EDDV: 'Hannover',
-    EDDH: 'Hamburg', EDDW: 'Brémy',
-    EHAM: 'Amsterdam', EBBR: 'Brusel', LFPG: 'Paríž CDG', LFPO: 'Paríž Orly',
-    LFPB: 'Paríž Le Bourget', LFMN: 'Nice', LFML: 'Marseille',
-    EGLL: 'Londýn Heathrow', EGKK: 'Londýn Gatwick', EGSS: 'Londýn Stansted',
-    LEMD: 'Madrid', LEBL: 'Barcelona',
-    LIRF: 'Rím Fiumicino', LIML: 'Miláno Linate', LIMC: 'Miláno Malpensa', LIPZ: 'Benátky',
-    LIPX: 'Verona', LIRP: 'Pisa',
-    LGAV: 'Atény', LTFM: 'Istanbul', LTAI: 'Antalya', LTAC: 'Ankara',
-    EKCH: 'Kodaň', ESSA: 'Štokholm', ENGM: 'Oslo', EFHK: 'Helsinki', EYVI: 'Vilnius',
-    EVRA: 'Riga', EETN: 'Tallinn',
-    UUEE: 'Moskva Šeremetevo', UUDD: 'Moskva Domodedovo',
-    OMDB: 'Dubaj', OTHH: 'Dauha'
+    LZIB: ['Bratislava', 48.170, 17.213], LZKZ: ['Košice', 48.663, 21.244],
+    LZTT: ['Poprad', 49.071, 20.247], LZPW: ['Piešťany', 48.620, 17.817],
+    LZSL: ['Sliač', 48.635, 19.136], LZTN: ['Trenčín', 48.889, 18.042],
+    LZZI: ['Žilina', 49.232, 18.974], LZLU: ['Lučenec', 48.334, 19.672],
+    LZMC: ['Malacky', 48.354, 17.019], LZNI: ['Nitra', 48.290, 18.151],
+    LOWW: ['Viedeň', 48.110, 16.570], LHBP: ['Budapešť', 47.437, 19.256],
+    LKPR: ['Praha', 50.101, 14.260], LKBR: ['Brno', 49.152, 16.694],
+    LKMT: ['Ostrava', 49.696, 18.111], EPKK: ['Krakov', 50.078, 19.785],
+    EPKT: ['Katovice', 50.474, 19.080], EPWA: ['Varšava', 52.166, 20.967],
+    EPRA: ['Radom', 51.169, 21.194], LRAR: ['Arad', 46.177, 21.262],
+    LRSM: ['Satu Mare', 47.784, 22.888], LROP: ['Bukurešť', 44.571, 26.085],
+    LRCL: ['Kluž', 46.785, 23.686], LRSB: ['Sibiu', 45.786, 24.091],
+    LYBE: ['Belehrad', 44.819, 20.309], LYTV: ['Niš', 43.337, 21.854],
+    LYPG: ['Podgorica', 42.359, 19.252],
+    LSZH: ['Zürich', 47.465, 8.549], LSGG: ['Ženeva', 46.238, 6.109],
+    EDDF: ['Frankfurt', 50.038, 8.562], EDDM: ['Mníchov', 48.354, 11.786],
+    EDDL: ['Düsseldorf', 51.289, 6.767], EDDT: ['Berlín Tegel', 52.560, 13.287],
+    EDDP: ['Lipsko', 51.424, 12.236], EDDK: ['Kolín/Bonn', 50.866, 7.143],
+    EDDB: ['Berlín', 52.362, 13.501], EDDN: ['Norimberg', 49.499, 11.078],
+    EDDV: ['Hannover', 52.461, 9.685], EDDH: ['Hamburg', 53.630, 9.988],
+    EDDW: ['Brémy', 53.047, 8.787],
+    EHAM: ['Amsterdam', 52.309, 4.764], EBBR: ['Brusel', 50.901, 4.484],
+    LFPG: ['Paríž CDG', 49.010, 2.548], LFPO: ['Paríž Orly', 48.726, 2.365],
+    LFPB: ['Le Bourget', 48.970, 2.441], LFMN: ['Nice', 43.658, 7.216],
+    LFML: ['Marseille', 43.436, 5.215],
+    EGLL: ['Londýn Heathrow', 51.471, -0.454], EGKK: ['Londýn Gatwick', 51.148, -0.191],
+    EGSS: ['Londýn Stansted', 51.885, 0.235],
+    LEMD: ['Madrid', 40.494, -3.567], LEBL: ['Barcelona', 41.297, 2.078],
+    LIRF: ['Rím Fiumicino', 41.804, 12.252], LIML: ['Miláno Linate', 45.445, 9.277],
+    LIMC: ['Miláno Malpensa', 45.630, 8.723], LIPZ: ['Benátky', 45.505, 12.352],
+    LIPX: ['Verona', 45.396, 10.888], LIRP: ['Pisa', 43.684, 10.393],
+    LGAV: ['Atény', 37.937, 23.946], LTFM: ['Istanbul', 41.275, 28.752],
+    LTAI: ['Antalya', 36.899, 30.801], LTAC: ['Ankara', 40.128, 32.995],
+    EKCH: ['Kodaň', 55.619, 12.656], ESSA: ['Štokholm', 59.652, 17.923],
+    ENGM: ['Oslo', 60.194, 11.100], EFHK: ['Helsinki', 60.317, 24.963],
+    EYVI: ['Vilnius', 54.634, 25.286], EVRA: ['Riga', 56.924, 23.972],
+    EETN: ['Tallinn', 59.413, 24.764],
+    UUEE: ['Moskva Šeremetevo', 55.973, 37.415], UUDD: ['Moskva Domodedovo', 55.409, 37.906],
+    OMDB: ['Dubaj', 25.253, 55.365], OTHH: ['Dauha', 25.273, 51.608]
   };
-  function airportName(icao) {
-    return AIRPORTS[icao] || icao;
+  function airInfo(icao, nameHint) {
+    var l = AIRPORTS[icao];
+    return { icao: icao, name: (nameHint || (l ? l[0] : '') || icao), lat: l ? l[1] : null, lon: l ? l[2] : null };
   }
-  // route formát: "EDDF-EPKT" (prípadne "EDDF EPKT" / "EDDF - EPKT")
+  // route formát v dátach: "EDDF-EPKT"
   function routeParts(route) {
     if (!route) return null;
     var m = String(route).toUpperCase().match(/([A-Z]{4})/g);
     if (!m || m.length < 2) return null;
     return { from: m[0], to: m[1] };
   }
+  // haversine vzdialenosť v km
+  function distKm(la1, lo1, la2, lo2) {
+    var R = 6371;
+    var dLat = (la2 - la1) * Math.PI / 180, dLon = (lo2 - lo1) * Math.PI / 180;
+    var x = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(la1 * Math.PI / 180) * Math.cos(la2 * Math.PI / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+  }
 
-  function popupHtml(a) {
-    var cs = (a.callsign || '').trim() || a.icao24;
-    var lines = ['<b>' + cs.toUpperCase() + '</b> <small>(' + a.icao24 + ')</small>'];
-    if (a.reg) lines.push('Registrácia: ' + a.reg);
-    if (a.type) lines.push('Typ: ' + a.type);
-    if (a.country) lines.push('Krajina: ' + a.country);
-    lines.push('Rýchlosť: ' + fmt(a.speedKmh, 'km/h') + ' (' + fmt(a.speedKt, 'kt') + ')');
-    lines.push('Výška: ' + fmt(a.altFt, 'ft') + ' (' + fmt(a.altFt != null ? a.altFt / FT : null, 'm') + ')');
-    lines.push('Vertikálna rýchlosť: ' + fmt(a.vrateFpm, 'ft/min') + '');
-    lines.push('Kurz: ' + fmt(a.track, '°'));
-    lines.push('Squawk: ' + (a.squawk || '–'));
-    lines.push('Na zemi: ' + (a.onGround ? 'áno' : 'nie'));
-    if (a.emergency && a.emergency !== 'none') lines.push('<b style="color:#d43f3f">STAV: ' + a.emergency + '</b>');
-    if (a.reg) {
-      lines.push('<a href="https://www.planespotters.net/search?q=' + encodeURIComponent(a.reg) + '" target="_blank" rel="noopener">📷 Fotografie</a> · <a href="https://www.flightradar24.com/' + encodeURIComponent(a.reg) + '" target="_blank" rel="noopener">🔎 FR24</a>');
-    } else if ((a.callsign || '').trim()) {
-      lines.push('<a href="https://www.planespotters.net/search?q=' + encodeURIComponent((a.callsign || '').trim()) + '" target="_blank" rel="noopener">📷 Fotografie</a>');
+  // trasa z adsbdb (databáza letových trás, free bez kľúča), cacheovaná podľa callsignu
+  var routeCache = {};
+  function ensureRoute(a) {
+    var cs = (a.callsign || '').trim();
+    if (!cs) return;
+    var cached = routeCache[cs];
+    if (cached === undefined) {
+      routeCache[cs] = null; // záp. marker, neopakovať
+      dbg('trasa: pýtam adsbdb pre ' + cs);
+      fetchTimeout('https://api.adsbdb.com/v0/callsign/' + encodeURIComponent(cs), 9000)
+        .then(function (r) { if (!r.ok) throw new Error('adsbdb HTTP ' + r.status); return r.json(); })
+        .then(function (d) {
+          var fr = d && d.flightroute;
+          if (!fr || !fr.origin || !fr.destination) return null;
+          return {
+            from: airInfo(fr.origin.icao_code, fr.origin.municipality),
+            to: airInfo(fr.destination.icao_code, fr.destination.municipality),
+            airline: fr.airline && fr.airline.name ? fr.airline.name : null
+          };
+        })
+        .then(function (v) {
+          routeCache[cs] = v;
+          if (v) {
+            var p = planes[a.icao24];
+            if (p) p.fromTo = v;
+            if (selected === a.icao24) openSheet(planes[a.icao24] || a);
+          }
+        })
+        .catch(function () { routeCache[cs] = null; });
+    } else if (cached) {
+      a.fromTo = cached;
     }
-    lines.push('<small>Zdroj: ' + a.src + ' • dráha: ' + ((a.trail || []).length) + ' bodov</small>');
-    var btnStyle = 'padding:5px 10px;border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:12px;';
-    lines.push('<div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap">' +
-      '<button onclick="window.__skyFollow(&#39;' + a.icao24 + '&#39;)" style="' + btnStyle + 'background:#0b3d5c;">' +
-        (follow === a.icao24 ? '⏹ Ukončiť sledovanie' : '🎯 Sledovať') + '</button>' +
-      '<button onclick="window.__skyFav(&#39;' + a.icao24 + '&#39;)" style="' + btnStyle + 'background:' + (favs[a.icao24] ? '#b8860b' : '#f5b301') + ';color:#3a2a00;">' +
-        (favs[a.icao24] ? '★ V obľúbených' : '☆ Obľúbené') + '</button>' +
-      '</div>');
-    return '<div class="plane-popup">' + lines.join('<br>') + '</div>';
   }
 
   function normAdsb(a, src) {
@@ -346,7 +381,36 @@
 
   // ---------- detailný panel (spodný sheet) ----------
   var sheetEl = null;
-  function closeSheet() { if (sheetEl) sheetEl.classList.remove('open'); }
+  function clearAirports() {
+    if (airportLayer) { map.removeLayer(airportLayer); airportLayer = null; }
+  }
+  function closeSheet() {
+    if (sheetEl) sheetEl.classList.remove('open');
+    clearAirports();
+  }
+  // zvýraznenie letísk + spojnica trasy na mape
+  function drawAirports(a) {
+    clearAirports();
+    var rt = a.fromTo;
+    if (!rt) {
+      var rp = routeParts(a.route);
+      if (rp) rt = { from: airInfo(rp.from), to: airInfo(rp.to) };
+    }
+    if (!rt) return;
+    var pts = [];
+    airportLayer = L.layerGroup().addTo(map);
+    [[rt.from, '🛫', '#1e73c8'], [rt.to, '🛬', '#d43f3f']].forEach(function (x) {
+      var info = x[0];
+      if (info.lat == null) return;
+      pts.push([info.lat, info.lon]);
+      L.circleMarker([info.lat, info.lon], {
+        radius: 7, color: '#fff', weight: 2.5, fillColor: x[2], fillOpacity: 1
+      }).addTo(airportLayer).bindTooltip(x[1] + ' ' + info.name + ' (' + info.icao + ')', { direction: 'top' });
+    });
+    if (pts.length === 2) {
+      L.polyline(pts, { color: '#1e73c8', weight: 2, dashArray: '6 6', opacity: 0.75 }).addTo(airportLayer);
+    }
+  }
   function openSheet(a) {
     if (!a) return;
     if (!sheetEl) sheetEl = document.getElementById('sheet');
@@ -356,25 +420,13 @@
     var sub = [];
     if (a.reg) sub.push(a.reg);
     if (a.type) sub.push(a.type);
+    if (a.fromTo && a.fromTo.airline) sub.push(a.fromTo.airline);
     if (a.country) sub.push(a.country);
     document.getElementById('sheetSub').textContent = sub.join(' · ') || ('hex ' + a.icao24);
     document.getElementById('sheetBody').innerHTML = sheetBodyHtml(a);
     sheetEl.classList.add('open');
-    // ak trasa chýba, skúsime ju dotiahnuť podľa callsignu (adsb.lol)
-    if (!routeParts(a.route) && (a.callsign || '').trim() && !a.routeTried) {
-      a.routeTried = true;
-      fetchTimeout('https://api.adsb.lol/v2/callsign/' + encodeURIComponent(a.callsign.trim()))
-        .then(function (r) { return r.json(); })
-        .then(function (d) {
-          var b = (d.ac || [])[0];
-          if (b && b.route) {
-            a.route = b.route;
-            if (planes[a.icao24]) planes[a.icao24].route = b.route;
-            if (selected === a.icao24) openSheet(planes[a.icao24] || a);
-          }
-        })
-        .catch(function () {});
-    }
+    ensureRoute(a);
+    drawAirports(a);
   }
   window.__skySheetClose = function () { selected = null; closeSheet(); drawTrail(); renderSelection(); };
 
@@ -391,11 +443,34 @@
     var trk = a.track != null ? Math.round(a.track) + '°' : '–';
     var html = '';
     if (a.emergency && a.emergency !== 'none') html += '<div class="alert">⚠ NÚDZOVÝ STAV: ' + a.emergency + '</div>';
-    var rp = routeParts(a.route);
-    if (rp) {
-      html += '<div class="routeline">🛫 ' + airportName(rp.from) + ' <span class="arrow">→</span> 🛬 ' + airportName(rp.to) + '</div>';
+
+    // trasa: odkiaľ → kam (+ vzdialenosť a progres, ak poznáme polohy letísk)
+    var rt = a.fromTo;
+    if (!rt) {
+      var rp = routeParts(a.route);
+      if (rp) rt = { from: airInfo(rp.from), to: airInfo(rp.to) };
     }
-    html += '<div class="sheet-grid">' +
+    var progCells = '';
+    if (rt) {
+      html += '<div class="routeline"><span class="leg">🛫 ' + rt.from.name + ' <small>(' + rt.from.icao + ')</small></span>' +
+              '<span class="arrow">→</span>' +
+              '<span class="leg">🛬 ' + rt.to.name + ' <small>(' + rt.to.icao + ')</small></span></div>';
+      if (rt.from.lat != null && rt.to.lat != null && a.lat != null) {
+        var dTot = distKm(rt.from.lat, rt.from.lon, rt.to.lat, rt.to.lon);
+        var dFlown = distKm(rt.from.lat, rt.from.lon, a.lat, a.lon);
+        var pct = Math.max(0, Math.min(100, Math.round(dFlown / dTot * 100)));
+        var dLeft = Math.max(0, Math.round(dTot - dFlown));
+        html += '<div class="routeprog" title="' + pct + ' % preletané"><span style="width:' + pct + '%"></span></div>';
+        progCells =
+          cell('Vzdialenosť', Math.round(dTot) + ' km') +
+          cell('Preletané', pct + ' %') +
+          cell('Zostáva', dLeft + ' km');
+      }
+    } else {
+      html += '<div class="routeline muted">Trasa neznáma <small>(adsbdb nemá pre tento callsign letovú trasu)</small></div>';
+    }
+
+    html += '<div class="sheet-grid">' + progCells +
       cell('Výška', altFt + ' ft') +
       cell('Výška (m)', altM + ' m') +
       cell('Rýchlosť', spd + ' km/h') +
@@ -450,6 +525,8 @@
       if (hideGround && a.onGround) return;
       seen[a.icao24] = true;
       updateTrail(a);
+      var prev = planes[a.icao24];
+      if (prev) { a.trail = prev.trail; a.fromTo = prev.fromTo || a.fromTo; }
       planes[a.icao24] = a;
       var isSel = (selected === a.icao24);
       if (markers[a.icao24]) {
@@ -515,7 +592,12 @@
     }, Math.max(0, REFRESH_MS - (Date.now() - lastFetch)));
   }
 
-  map.on('moveend zoomend', refresh);
+  // po posune/zoome mapy doplní lietadlá pre nový výrez takmer hneď (debounce 700 ms)
+  var moveTimer = null;
+  map.on('moveend zoomend', function () {
+    if (moveTimer) clearTimeout(moveTimer);
+    moveTimer = setTimeout(fetchStates, 700);
+  });
   var mapEl = map.getContainer();
   map.on('zoomstart', function () { mapEl.classList.add('zooming'); });
   map.on('zoomend', function () { mapEl.classList.remove('zooming'); });
