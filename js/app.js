@@ -10,7 +10,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '3.6.0';
+  var VERSION = '3.7.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -442,20 +442,52 @@
   }
 
   // ---------- zdroje ----------
+  // mriežka bodov pokrývajúca celý výrez mapy (max 6 bodov, každý do 250 NM)
+  function gridPoints() {
+    var b = map.getBounds(), c = map.getCenter();
+    var ne = b.getNorthEast(), sw = b.getSouthWest();
+    var wNm = Math.abs(ne.lng - sw.lng) * 60 * Math.cos(c.lat * Math.PI / 180);
+    var hNm = Math.abs(ne.lat - sw.lat) * 60;
+    var r = Math.min(250, Math.max(120, Math.round(Math.sqrt(wNm * wNm + hNm * hNm) / 2 / 1.6)));
+    var cols = Math.max(1, Math.min(3, Math.ceil(wNm / (2 * r * 0.85))));
+    var rows = Math.max(1, Math.min(2, Math.ceil(hNm / (2 * r * 0.85))));
+    var pts = [];
+    for (var i = 0; i < cols; i++) {
+      for (var j = 0; j < rows; j++) {
+        pts.push({
+          lat: sw.lat + (ne.lat - sw.lat) * ((i + 0.5) / cols),
+          lon: sw.lng + (ne.lng - sw.lng) * ((j + 0.5) / rows),
+          dist: r
+        });
+      }
+    }
+    return pts;
+  }
+
   function srcRadius(base, name) {
-    var c = map.getCenter();
-    var url = base + '/lat/' + c.lat.toFixed(4) + '/lon/' + c.lng.toFixed(4) + '/dist/' + distNm();
-    return fetchTimeout(url).then(function (r) {
-      dbg('odpoveď ' + name + ' HTTP ' + r.status + ', ' + (r.headers.get('content-length') || '?') + ' B');
-      if (!r.ok) throw new Error(name + ' HTTP ' + r.status);
-      return r.clone().text().then(function (tx) {
-        dbg('telo (' + name + '): ' + tx.slice(0, 180));
+    var pts = gridPoints();
+    var jobs = pts.map(function (pt) {
+      var url = base + '/lat/' + pt.lat.toFixed(4) + '/lon/' + pt.lon.toFixed(4) + '/dist/' + pt.dist;
+      return fetchTimeout(url).then(function (r) {
+        if (!r.ok) throw new Error(name + ' HTTP ' + r.status);
         return r.json();
+      }).then(function (d) {
+        if (d && d.error) throw new Error(name + ' error: ' + String(d.error).slice(0, 80));
+        return d.ac || d.aircraft || [];
       });
-    }).then(function (d) {
-      if (d && d.error) throw new Error(name + ' error: ' + String(d.error).slice(0, 80));
-      var list = d.ac || d.aircraft || [];
-      return list.map(function (a) { return normAdsb(a, name); });
+    });
+    // spájame všetky body mriežky; zlyhanie časti ne prestaví celý zdroj
+    return Promise.allSettled(jobs).then(function (res) {
+      var out = [], seen = {};
+      res.forEach(function (x, i) {
+        if (x.state !== 'fulfilled') { dbg(name + '[' + i + '] zlyhal: ' + (x.reason && x.reason.message)); return; }
+        x.value.forEach(function (a) {
+          if (a && a.hex && !seen[a.hex]) { seen[a.hex] = 1; out.push(normAdsb(a, name)); }
+        });
+      });
+      dbg(name + ': ' + out.length + ' lietadiel z ' + res.length + ' bodov mriežky');
+      if (!out.length) throw new Error(name + ': 0 lietadiel');
+      return out;
     });
   }
 
@@ -475,8 +507,8 @@
   function fetchAdsbLol() { return srcRadius('https://api.adsb.lol/v2', 'adsb.lol'); }
 
   function fetchViaProxy2() {
-    var c = map.getCenter();
-    var target = 'https://api.adsb.lol/v2/lat/' + c.lat.toFixed(4) + '/lon/' + c.lng.toFixed(4) + '/dist/' + distNm();
+    var g0 = gridPoints()[0];
+    var target = 'https://api.adsb.lol/v2/lat/' + g0.lat.toFixed(4) + '/lon/' + g0.lon.toFixed(4) + '/dist/' + Math.min(250, g0.dist);
     var url = 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(target);
     return fetchTimeout(url, 30000).then(function (r) {
       if (!r.ok) throw new Error('proxy2 HTTP ' + r.status);
@@ -496,8 +528,8 @@
   }
 
   function fetchViaProxy() {
-    var c = map.getCenter();
-    var target = 'https://api.adsb.lol/v2/lat/' + c.lat.toFixed(4) + '/lon/' + c.lng.toFixed(4) + '/dist/' + distNm();
+    var g0 = gridPoints()[0];
+    var target = 'https://api.adsb.lol/v2/lat/' + g0.lat.toFixed(4) + '/lon/' + g0.lon.toFixed(4) + '/dist/' + Math.min(250, g0.dist);
     var urls = [
       { name: 'allorigins', u: 'https://api.allorigins.win/raw?url=' + encodeURIComponent(target) },
       { name: 'codetabs', u: 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(target) },
@@ -712,10 +744,23 @@
     }
   }
 
-  var MAX_PLANES = 400;
+  // limit počtu zobrazených lietadiel podľa priblíženia (pri veľkom záberu menej)
+  function planeCap() {
+    var z = map.getZoom();
+    if (z <= 4) return 150;
+    if (z <= 5) return 250;
+    if (z <= 6) return 350;
+    return 400;
+  }
 
   function renderStates(arr) {
-    arr = (arr || []).slice(0, MAX_PLANES);
+    arr = (arr || []);
+    var prio = [], rest = [];
+    arr.forEach(function (a) {
+      if (pins[a.icao24] || favs[a.icao24] || selected === a.icao24) prio.push(a);
+      else rest.push(a);
+    });
+    arr = prio.concat(rest).slice(0, planeCap());
     var seen = {};
     arr.forEach(function (a) {
       if (a.lat == null || a.lon == null) return;
