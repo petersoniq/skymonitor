@@ -10,7 +10,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '3.4.0';
+  var VERSION = '3.5.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -142,6 +142,12 @@
       })
       .catch(function () { photoCache[hex] = null; });
   }
+
+  // ---------- manuálny refresh ----------
+  window.__skyRefresh = function () {
+    lastFetch = 0;
+    fetchStates();
+  };
 
   // ---------- panel obľúbených ----------
   window.__skyFavPanel = function () {
@@ -695,7 +701,7 @@
     tryFetch(0)
       .then(function (arr) {
         lastFetch = Date.now();
-        if (arr.length && lastSource) {
+        if (arr.length && lastSource && lastSource !== 'repo-cache') {
           var w = SRC_NAMES.indexOf(lastSource);
           if (w > 0) {
             SOURCES.unshift(SOURCES.splice(w, 1)[0]);
