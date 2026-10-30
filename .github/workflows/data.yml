@@ -1,0 +1,45 @@
+name: Data update (repo cache)
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Stiahni lietadlá a ulož do vetvy data
+        run: |
+          ok=0
+          for url in \
+            "https://api.adsb.lol/v2/lat/48.7/lon/19.5/dist/200" \
+            "https://opendata.adsb.fi/api/v2/lat/48.7/lon/19.5/dist/200"; do
+            for i in 1 2 3; do
+              curl -sL --max-time 25 "$url" -o data.json
+              if jq -e '(.ac // .aircraft) | length' data.json > /dev/null 2>&1; then
+                ok=1
+                break
+              fi
+              sleep 3
+            done
+            [ "$ok" -eq 1 ] && break
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "VAROVANIE: všetky zdroje zlyhali, zostáva stará cache"
+            exit 0
+          fi
+          jq '{updated: (now|floor), ac: (.ac // .aircraft)}' data.json > sk.json
+          mkdir repo && cd repo
+          git init -q
+          git config user.name "skymonitor-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git checkout -q -b data
+          mkdir -p data
+          cp ../sk.json data/sk.json
+          git add -A
+          git commit -qm "data: $(date -u +'%Y-%m-%d %H:%M') UTC"
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/petersoniq/skymonitor.git" data
