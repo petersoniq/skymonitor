@@ -17,7 +17,7 @@ jobs:
           rm -f part-*.json tmp.json
           n=0
           regions=0
-          for c in "48.7 19.5" "48.11 16.57" "47.44 19.26" "50.1 14.26" "50.08 19.79" "52.17 20.97" "45.78 16.0" "46.05 14.5"; do
+          for c in "48.7 19.5" "48.11 16.57" "47.44 19.26" "50.1 14.26" "50.08 19.79" "52.17 20.97" "45.78 16.0" "46.05 14.5" "52.36 13.50" "48.35 11.79" "50.03 8.56" "47.46 8.55" "49.01 2.55" "52.31 4.76" "51.47 -0.45" "41.80 12.25" "45.63 8.72" "40.49 -3.57" "41.40 2.08" "55.62 12.66" "59.65 17.92" "44.57 26.09" "37.94 23.95" "60.19 11.10" "53.42 -6.27" "38.77 -9.13"; do
             lat=${c% *}
             lon=${c#* }
             got=0
@@ -42,7 +42,7 @@ jobs:
             echo "VAROVANIE: všetky zdroje zlyhali, zostáva stará cache"
             exit 0
           fi
-          jq -s '[.[] | (.ac // .aircraft)] | flatten | map(select(.lat != null)) | unique_by(.hex) | {updated: (now|floor), ac: .}' part-*.json > sk.json
+          jq -s '[.[] | (.ac // .aircraft)] | flatten | map(select(.lat != null)) | unique_by(.hex) | map({hex, flight, r, t, alt_baro, gs, track, baro_rate, squawk, emergency, category, lat, lon}) | {updated: (now|floor), ac: .}' part-*.json > sk.json
           echo "OK: $regions regionov, $(jq '.ac | length' sk.json) lietadiel"
           mkdir repo && cd repo
           git init -q
