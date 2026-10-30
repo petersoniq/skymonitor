@@ -1,5 +1,5 @@
 /* SkyMonitor service worker – offline app shell */
-var SHELL_CACHE = 'skymonitor-shell-v11';
+var SHELL_CACHE = 'skymonitor-shell-v12';
 var TILE_CACHE = 'skymonitor-tiles-v1';
 var API_HOSTS = ['opensky-network.org', 'api.adsb.lol', 'opendata.adsb.fi', 'api.airplanes.live', 'raw.githubusercontent.com', 'api.adsbdb.com', 'api.planespotters.net'];
 var SHELL = [
