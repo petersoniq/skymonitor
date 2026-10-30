@@ -62,6 +62,10 @@
     100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
   }
 
+  /* plynulý pohyb lietadiel medzi obnoveniami; počas zoomu vypnuté */
+  #map:not(.zooming) .plane-icon { transition: transform 1.3s linear; }
+  #map.zooming .plane-icon { transition: none; }
+  .plane-icon { display: flex; align-items: center; justify-content: center; }
   .plane-popup { font-size: 13px; line-height: 1.55; min-width: 210px; }
   .plane-popup b { color: #0b3d5c; font-size: 14px; }
   .plane-popup small { color: #667; }
