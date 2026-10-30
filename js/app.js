@@ -9,14 +9,20 @@
 (function () {
   'use strict';
 
-  var VERSION = '2.1.1';
+  var VERSION = '2.2.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
   var FT = 3.28084;
-  var DIST_NM = 250;
+  var DIST_NM = 120; // Slovensko a okolie – menšie dáta, rýchlejšia odpoveď
 
-  var map = L.map('map', { zoomControl: true }).setView([48.7, 19.5], 6);
+  var SK_BOUNDS = L.latLngBounds([46.5, 16.0], [49.6, 22.6]);
+  var map = L.map('map', {
+    zoomControl: true,
+    minZoom: 7,
+    maxBounds: SK_BOUNDS.pad(0.2),
+    maxBoundsViscosity: 0.9
+  }).setView([48.7, 19.5], 8);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 18,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | Data: adsb.lol / adsb.fi / airplanes.live / OpenSky'
@@ -286,7 +292,10 @@
     }
   }
 
+  var MAX_PLANES = 400;
+
   function renderStates(arr) {
+    arr = (arr || []).slice(0, MAX_PLANES);
     var seen = {};
     arr.forEach(function (a) {
       if (a.lat == null || a.lon == null) return;
