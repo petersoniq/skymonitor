@@ -10,7 +10,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '3.8.0';
+  var VERSION = '3.9.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -174,6 +174,78 @@
       markers[hex].setIcon(planeIcon(pp.track, pp.altFt, hex === selected, !!favs[hex], !!pins[hex]));
       if (hex === selected) openSheet(pp);
     }
+  };
+
+  // ---------- preklad IATA <-> ICAO volacích znakov ----------
+  // Na letiskových tabuliach je IATA formát (FR8017), ADS-B vysielanie používa ICAO (RYR8017).
+  var IATA_TO_ICAO = {
+    FR: 'RYR', W6: 'WZZ', LH: 'DLH', U2: 'EZY', BA: 'BAW', AF: 'AFR', KL: 'KLM',
+    TK: 'THY', OS: 'AUA', OK: 'CSA', LO: 'LOT', LX: 'SWR', EW: 'EWG', VY: 'VLG',
+    DY: 'NOZ', AY: 'FIN', SK: 'SAS', SU: 'AFL', EK: 'UAE', QR: 'QTR', UA: 'UAL',
+    AA: 'AAL', DL: 'DAL', WN: 'SWA', B6: 'JBU', AC: 'ACA', QF: 'QFA', SQ: 'SIA',
+    CX: 'CPA', JL: 'JAL', NH: 'ANA', CA: 'CCA', MU: 'CES', CZ: 'CSN', AI: 'AIC',
+    ET: 'ETH', MS: 'MSR', SA: 'SAA', LA: 'LAN', AM: 'AMX', AV: 'AVA', CM: 'CMP',
+    IB: 'IBE', TP: 'TAP', A3: 'AEE', FB: 'LZB', RO: 'ROT', OU: 'CTN',
+    JP: 'ADR', BT: 'BTI', AZ: 'ITY', VS: 'VIR', TG: 'THA', MH: 'MAS', GA: 'GIA',
+    PR: 'PAL', VN: 'HVN', BR: 'EVA', KE: 'KAL', OZ: 'AAR', ME: 'MEA', RJ: 'RJA',
+    GF: 'GFA', SV: 'SVA', PC: 'PGT', HV: 'TRA', DE: 'CFG', X3: 'TUI',
+    PS: 'AUI', UX: 'AEA', FI: 'ICE', GJ: 'GDA', V7: 'VOE', YW: 'AEW',
+    '9C': 'CQH', '5F': 'FIA', '6E': 'IGO', W9: 'AVJ', W4: 'WIF', '4U': 'GWI',
+    FZ: 'FDB', TO: 'TVF', D8: 'IBS', HY: 'UZB'
+  };
+  function callCandidates(raw) {
+    var cleaned = (raw || '').toUpperCase().replace(/\s+/g, '');
+    var out = [cleaned];
+    if (cleaned.length > 2) {
+      var icao = IATA_TO_ICAO[cleaned.slice(0, 2)];
+      if (icao) {
+        var c2 = icao + cleaned.slice(2);
+        if (out.indexOf(c2) === -1) out.push(c2);
+      }
+      // aj opačný smer: zadané ICAO -> skús IATA (pre adsbdb, ktorý kľúčuje aj IATA)
+      for (var iata in IATA_TO_ICAO) {
+        if (IATA_TO_ICAO[iata] === cleaned.slice(0, 3)) {
+          var c3 = iata + cleaned.slice(3);
+          if (out.indexOf(c3) === -1) out.push(c3);
+        }
+      }
+    }
+    return out;
+  }
+
+  // ---------- offline cache posledných dát ----------
+  var LAST_CACHE_KEY = 'skymon-last-v1';
+  function saveLastStates(arr) {
+    try {
+      var slim = arr.slice(0, 400).map(function (a) {
+        var c = {};
+        for (var k in a) { if (k !== 'trail') c[k] = a[k]; }
+        c.trail = (a.trail || []).slice(-30);
+        return c;
+      });
+      localStorage.setItem(LAST_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: slim }));
+    } catch (e) {}
+  }
+  function loadLastStates() {
+    try { var r = localStorage.getItem(LAST_CACHE_KEY); return r ? JSON.parse(r) : null; } catch (e) { return null; }
+  }
+
+  // ---------- PWA inštalácia ----------
+  var deferredInstall = null;
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();
+    deferredInstall = e;
+    var b = document.getElementById('installBtn');
+    if (b) b.style.display = 'inline-block';
+  });
+  window.__skyInstall = function () {
+    if (!deferredInstall) return;
+    deferredInstall.prompt();
+    deferredInstall.userChoice.then(function () {
+      deferredInstall = null;
+      var b = document.getElementById('installBtn');
+      if (b) b.style.display = 'none';
+    });
   };
 
   // ---------- kategórie lietadiel + fotografie ----------
@@ -828,13 +900,25 @@
             SRC_NAMES.unshift(SRC_NAMES.splice(w, 1)[0]);
           }
         }
+        saveLastStates(arr);
         renderStates(arr);
         if (follow && planes[follow]) {
           map.setView([planes[follow].lat, planes[follow].lon], map.getZoom(), { animate: false });
         }
         status(arr.length + ' lietadiel • ' + new Date().toLocaleTimeString('sk') + (lastSource ? ' • ' + lastSource : ''));
       })
-      .catch(function (err) { status('Chyba: ' + err.message); })
+      .catch(function (err) {
+        // offline fallback: ak nemáme nič na mape, zobraz posledné uložené dáta
+        var n = 0; for (var k in markers) { n++; }
+        var cached = loadLastStates();
+        if (cached && cached.data && cached.data.length && n === 0) {
+          renderStates(cached.data);
+          var age = Math.round((Date.now() - cached.ts) / 60000);
+          status('⚠ Zdroje zlyhali – zobrazujem posledné dáta (' + age + ' min staré)');
+        } else {
+          status('Chyba: ' + err.message);
+        }
+      })
       .then(function () { inFlight = false; if (pending) { pending = false; fetchStates(); } });
   }
 
@@ -876,22 +960,48 @@
     fetchStates();
   });
 
-  // hľadanie: callsign alebo hex (adsb.lol má priame endpointy)
+  // hľadanie: callsign (IATA aj ICAO tvar) alebo hex
   document.getElementById('search').addEventListener('keydown', function (e) {
     if (e.key !== 'Enter') return;
     var q = e.target.value.trim();
     if (!q) return;
     var isHex = /^[0-9a-f]{6}$/i.test(q);
-    var url = isHex
-      ? 'https://api.adsb.lol/v2/hex/' + q
-      : 'https://api.adsb.lol/v2/callsign/' + encodeURIComponent(q);
-    status('Hľadám "' + q + '"…');
-    fetchTimeout(url)
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        var hits = (d.ac || []).filter(function (a) { return a.lat != null; }).map(function (a) { return normAdsb(a, 'adsb.lol'); });
-        if (!hits.length) throw new Error('nenájdené');
+    var cands = isHex ? [q] : callCandidates(q);
+    status('Hľadám "' + q + '"' + (cands.length > 1 ? ' (skúšam ' + cands.join(' aj ') + ')' : '') + '…');
+    var idx = 0;
+    function tryOne() {
+      if (idx >= cands.length) return Promise.reject(new Error('všetky tvary skúšané'));
+      var c = cands[idx++];
+      var url = isHex
+        ? 'https://api.adsb.lol/v2/hex/' + c
+        : 'https://api.adsb.lol/v2/callsign/' + encodeURIComponent(c);
+      return fetchTimeout(url)
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          var hits = (d.ac || []).filter(function (a) { return a.lat != null; }).map(function (a) { return normAdsb(a, 'adsb.lol'); });
+          if (!hits.length) return tryOne();
+          return hits;
+        });
+    }
+    // najprv medzi lietadlami, ktoré už máme na mape
+    var local = null;
+    cands.forEach(function (c) {
+      if (local) return;
+      Object.keys(planes).forEach(function (k) {
+        if (!local && (planes[k].callsign || '').trim().toUpperCase() === c) local = planes[k];
+      });
+    });
+    if (local) {
+      selected = local.icao24;
+      map.setView([local.lat, local.lon], Math.max(map.getZoom(), 9), { animate: true });
+      drawTrail(); renderSelection(); openSheet(local);
+      status('Nájdené na mape: ' + (local.callsign || '').trim());
+      return;
+    }
+    tryOne()
+      .then(function (hits) {
         var a = hits[0];
+        unlockMap();
         renderStates(hits);
         selected = a.icao24;
         map.setView([a.lat, a.lon], 9, { animate: true });
@@ -899,18 +1009,19 @@
         status('Nájdené: ' + hits.length + ' lietadiel');
       })
       .catch(function () {
-        // fallback: globálne OpenSky
+        // fallback: globálne OpenSky (skúša všetky tvary callsignu)
         status('Skúšam OpenSky globálne…');
         fetchTimeout('https://opensky-network.org/api/states/all')
           .then(function (r) { return r.json(); })
           .then(function (d) {
-            var ql = q.toLowerCase();
-            var hits = (d.states || []).filter(function (s) {
-              var cs = (s[1] || '').trim().toLowerCase();
-              return cs.indexOf(ql) !== -1 || s[0].toLowerCase().indexOf(ql) !== -1;
+            var candsLow = cands.map(function (c) { return c.toLowerCase(); });
+            var hits = (d.states || []).filter(function (st) {
+              var cs = (st[1] || '').trim().toLowerCase();
+              return candsLow.indexOf(cs) !== -1;
             }).map(normOpenSky).filter(function (a) { return a.lat != null; });
             if (!hits.length) { status('Nič nenájdené pre "' + q + '"'); return; }
             var a = hits[0];
+            unlockMap();
             renderStates(hits);
             map.setView([a.lat, a.lon], 9, { animate: true });
             status('Nájdené: ' + hits.length + ' lietadiel');
