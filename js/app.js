@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2.2.0';
+  var VERSION = '2.3.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -178,6 +178,19 @@
     });
   }
 
+  // repo-cache: dáta ukladané GitHub Actions workflowom do vetvy data
+  function fetchRepoData() {
+    var url = 'https://raw.githubusercontent.com/petersoniq/skymonitor/data/data/sk.json?_=' + Date.now();
+    return fetchTimeout(url, 15000).then(function (r) {
+      if (!r.ok) throw new Error('repo HTTP ' + r.status);
+      return r.json();
+    }).then(function (d) {
+      var age = d.updated ? Math.round((Date.now() / 1000 - d.updated) / 60) : 0;
+      var list = d.ac || [];
+      return list.map(function (a) { return normAdsb(a, 'repo-cache (' + age + ' min)'); });
+    });
+  }
+
   function fetchAdsbLol() { return srcRadius('https://api.adsb.lol/v2', 'adsb.lol'); }
 
   function fetchViaProxy2() {
@@ -239,8 +252,8 @@
     }).then(function (d) { return (d.states || []).map(normOpenSky); });
   }
 
-  var SOURCES = [fetchAdsbLol, fetchAdsbFi, fetchAirplanesLive, fetchOpenSky, fetchViaProxy, fetchViaProxy2];
-  var SRC_NAMES = ['adsb.lol', 'adsb.fi', 'airplanes.live', 'OpenSky', 'allorigins', 'codetabs'];
+  var SOURCES = [fetchAdsbLol, fetchAdsbFi, fetchAirplanesLive, fetchOpenSky, fetchViaProxy, fetchViaProxy2, fetchRepoData];
+  var SRC_NAMES = ['adsb.lol', 'adsb.fi', 'airplanes.live', 'OpenSky', 'allorigins', 'codetabs', 'repo-cache'];
   var attemptLog = [];
 
   function tryFetch(i) {
@@ -258,6 +271,7 @@
       .then(function (arr) {
         attemptLog.push(SRC_NAMES[i] + ': OK (' + arr.length + ')');
         dbg('OK ' + SRC_NAMES[i] + ': ' + arr.length + ' lietadiel');
+        lastSource = SRC_NAMES[i];
         if (arr.length === 0 && i + 1 < SOURCES.length) {
           dbg(SRC_NAMES[i] + ' vrátil 0 lietadiel, skúšam ďalší zdroj');
           return tryFetch(i + 1);
@@ -344,7 +358,13 @@
     tryFetch(0)
       .then(function (arr) {
         lastFetch = Date.now();
-        if (arr.length) lastSource = arr[0].src;
+        if (arr.length && lastSource) {
+          var w = SRC_NAMES.indexOf(lastSource);
+          if (w > 0) {
+            SOURCES.unshift(SOURCES.splice(w, 1)[0]);
+            SRC_NAMES.unshift(SRC_NAMES.splice(w, 1)[0]);
+          }
+        }
         renderStates(arr);
         if (follow && planes[follow]) {
           map.setView([planes[follow].lat, planes[follow].lon], map.getZoom(), { animate: false });
