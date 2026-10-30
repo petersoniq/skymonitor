@@ -11,5 +11,5 @@
   "icons": [
     { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ],
-  "version": "2.3.0"
+  "version": "3.0.0"
 }
