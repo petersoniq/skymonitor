@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2.0.1';
+  var VERSION = '2.1.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -408,6 +408,57 @@
   if (navigator.serviceWorker.controller) dbg('SW aktívny: ' + (navigator.serviceWorker.controller.scriptURL || ''));
   else dbg('žiadny SW controller');
   dbg('online: ' + navigator.onLine);
+
+  // ---------- diagnostika (tlačidlo 🔧) ----------
+  window.__skyDiag = function () {
+    var panel = document.getElementById('diagPanel');
+    var out = document.getElementById('diagOut');
+    if (!panel || !out) return;
+    panel.style.display = 'flex';
+    out.innerHTML =
+      '<b>SkyMonitor v' + VERSION + '</b><br>' +
+      'online: ' + navigator.onLine + '<br>' +
+      'service worker: ' + (navigator.serviceWorker.controller ? 'aktívny' : 'neaktívny') + '<br>' +
+      'prehliadač: ' + navigator.userAgent.slice(0, 60) + '<br><br>';
+    var idx = 0;
+    function next() {
+      if (idx >= SOURCES.length) {
+        out.innerHTML += '<br><b>Hotovo.</b> Ak všetky zdroje zlyhajú, skús vypnúť rozšírenia prehliadača alebo iný prehliadač.';
+        return;
+      }
+      var i = idx++;
+      var name = SRC_NAMES[i];
+      out.innerHTML += '<div id="diag' + i + '">' + name + ': <i>testujem…</i></div>';
+      var t0 = Date.now();
+      var p;
+      try { p = SOURCES[i](); } catch (e) { p = Promise.reject(e); }
+      p.then(function (arr) {
+        document.getElementById('diag' + i).innerHTML = name + ': <b style="color:#2e7d32">OK — ' + arr.length + ' lietadiel (' + (Date.now() - t0) + ' ms)</b>';
+      }).catch(function (err) {
+        document.getElementById('diag' + i).innerHTML = name + ': <b style="color:#c62828">' + err.message + ' (' + (Date.now() - t0) + ' ms)</b>';
+      }).then(next);
+    }
+    next();
+  };
+  window.__skyDiagClose = function () {
+    var panel = document.getElementById('diagPanel');
+    if (panel) panel.style.display = 'none';
+  };
+  window.__skyDiagCopy = function () {
+    var out = document.getElementById('diagOut');
+    var btn = document.getElementById('diagCopyBtn');
+    if (!out) return;
+    var text = out.innerText;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () {
+        if (btn) btn.textContent = '✓ Skopírované';
+      }).catch(function () {
+        if (btn) btn.textContent = 'Skopíruj ručne (označ text)';
+      });
+    } else if (btn) {
+      btn.textContent = 'Skopíruj ručne (označ text)';
+    }
+  };
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').then(function (r) { dbg('SW zaregistrovaný'); }).catch(function (e) { dbg('SW chyba: ' + e.message); });
