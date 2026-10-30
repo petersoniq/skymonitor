@@ -101,6 +101,17 @@
     margin-bottom: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
   }
   .routeline .arrow { color: #1e73c8; font-weight: 800; }
+  .routeline .leg small { font-weight: 400; color: #587; }
+  .routeline.muted { background: #f4f7fa; color: #8899a6; font-weight: 400; }
+  .routeprog {
+    height: 7px; background: #dfe8f2; border-radius: 5px;
+    margin: 0 0 8px; overflow: hidden;
+  }
+  .routeprog span {
+    display: block; height: 100%; border-radius: 5px;
+    background: linear-gradient(90deg, #1e73c8, #4aa3e8);
+    transition: width 1s ease;
+  }
   .alert { background: #fdecea; color: #b71c1c; padding: 8px 12px; border-radius: 8px; font-weight: 700; margin-bottom: 8px; font-size: 13px; }
   .sheet-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0; }
   .cell { background: #f4f7fa; border-radius: 10px; padding: 8px 10px; }
