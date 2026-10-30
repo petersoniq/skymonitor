@@ -10,7 +10,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '3.3.0';
+  var VERSION = '3.3.1';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -206,11 +206,20 @@
       fetchTimeout('https://api.adsbdb.com/v0/callsign/' + encodeURIComponent(cs), 9000)
         .then(function (r) { if (!r.ok) throw new Error('adsbdb HTTP ' + r.status); return r.json(); })
         .then(function (d) {
-          var fr = d && d.flightroute;
+          var fr = d && d.response && d.response.flightroute;
           if (!fr || !fr.origin || !fr.destination) return null;
+          var mk = function (x) {
+            var l = AIRPORTS[x.icao_code];
+            return {
+              icao: x.icao_code,
+              name: x.municipality || (l ? l[0] : '') || x.icao_code,
+              lat: (x.latitude != null ? x.latitude : (l ? l[1] : null)),
+              lon: (x.longitude != null ? x.longitude : (l ? l[2] : null))
+            };
+          };
           return {
-            from: airInfo(fr.origin.icao_code, fr.origin.municipality),
-            to: airInfo(fr.destination.icao_code, fr.destination.municipality),
+            from: mk(fr.origin),
+            to: mk(fr.destination),
             airline: fr.airline && fr.airline.name ? fr.airline.name : null
           };
         })
