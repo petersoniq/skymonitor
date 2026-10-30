@@ -102,6 +102,14 @@
   }
   .routeline .arrow { color: #1e73c8; font-weight: 800; }
   .routeline .leg small { font-weight: 400; color: #587; }
+  #favOut { padding: 14px 16px; }
+  .favrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid #eef2f6; }
+  .favrow b { color: #0b3d5c; font-size: 15px; display: block; }
+  .favrow span { color: #667; font-size: 12.5px; }
+  .favrow button { padding: 8px 12px; border: none; border-radius: 8px; background: #0b3d5c; color: #fff; cursor: pointer; font-size: 13px; flex: none; }
+  .favempty { color: #667; font-size: 13.5px; line-height: 1.6; }
+  .plane-photo img { width: 100%; border-radius: 10px; display: block; margin: 8px 0 2px; }
+  .photo-credit { font-size: 11px; color: #8899a6; margin-bottom: 4px; }
   .routeline.muted { background: #f4f7fa; color: #8899a6; font-weight: 400; }
   .routeprog {
     height: 7px; background: #dfe8f2; border-radius: 5px;
@@ -143,20 +151,21 @@
   }
   .legend span.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
 
-  .diagbtn {
+  .diagbtn, .iconbtn {
     display: flex; align-items: center; justify-content: center;
     width: 44px; height: 44px; font-size: 17px; flex: none;
     background: rgba(255,255,255,.92); border: none; border-radius: 12px;
     cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.25);
   }
-  .diagbtn:hover { background: #fff; }
+  .diagbtn:hover, .iconbtn:hover { background: #fff; }
 
-  #diagPanel {
+  #diagPanel, #favPanel {
     position: fixed; inset: 0; z-index: 2000;
     background: rgba(0,0,0,.45);
     display: none; align-items: center; justify-content: center;
     padding: 16px;
-  }
+
+
   .diagcard {
     background: #fff; border-radius: 14px; max-width: 480px; width: 100%;
     max-height: 80vh; overflow: auto; box-shadow: 0 12px 40px rgba(0,0,0,.4);
@@ -194,6 +203,9 @@
       <span>SkyMonitor<small>live pozície lietadiel</small></span>
     </div>
     <div class="status"><span class="pulse"></span><span id="status">Načítavam…</span></div>
+    <button class="iconbtn" id="themeBtn" title="Téma mapy (svetlá/tmavá)" onclick="window.__skyTheme()">🌙</button>
+    <button class="iconbtn" title="Obľúbené lietadlá" onclick="window.__skyFavPanel()">⭐</button>
+    <button class="iconbtn" title="Moja poloha" onclick="window.__skyLocate()">📍</button>
     <button class="diagbtn" title="Diagnostika zdrojov" onclick="window.__skyDiag()">🔧</button>
   </div>
   <div class="searchrow">
@@ -218,6 +230,12 @@
   <span class="dot" style="background:#e08a1e"></span>stredne &nbsp;
   <span class="dot" style="background:#1e73c8"></span>vyššie &nbsp;
   <span class="dot" style="background:#fff;border:1px solid #999"></span>vybrané
+</div>
+<div id="favPanel" onclick="if(event.target===this)window.__skyFavPanelClose()">
+  <div class="diagcard">
+    <div class="diaghead"><span>⭐ Obľúbené lietadlá</span><button onclick="window.__skyFavPanelClose()">✕</button></div>
+    <div id="favOut"></div>
+  </div>
 </div>
 <div id="diagPanel" onclick="if(event.target===this)window.__skyDiagClose()">
   <div class="diagcard">
