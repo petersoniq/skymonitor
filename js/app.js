@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '3.1.0';
+  var VERSION = '3.2.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -129,6 +129,41 @@
 
   function fmt(v, u) { return (v == null ? '–' : (typeof v === 'number' ? Math.round(v) : v) + (u ? ' ' + u : '')); }
 
+  // ---------- trasa letu (ICAO -> názov letiska) ----------
+  var AIRPORTS = {
+    LZIB: 'Bratislava', LZKZ: 'Košice', LZTT: 'Poprad', LZPW: 'Piešťany', LZSL: 'Sliač',
+    LZTN: 'Trenčín', LZZI: 'Žilina', LZLU: 'Lučenec', LZMC: 'Malacky', LZNI: 'Nitra',
+    LOWW: 'Viedeň', LHBP: 'Budapešť', LKPR: 'Praha', LKBR: 'Brno', LKMT: 'Ostrava',
+    EPKK: 'Krakov', EPKT: 'Katovice', EPWA: 'Varšava', EPRA: 'Radom', LRAR: 'Arad',
+    LRSM: 'Satu Mare', LROP: 'Bukurešť', LRCL: 'Kluž', LRSB: 'Sibiu', LRBS: 'Bukurešť Băneasa',
+    LYBE: 'Belehrad', LYTV: 'Niš', LYPG: 'Podgorica',
+    LSZH: 'Zürich', LSGG: 'Ženeva', LSMY: 'Sion',
+    EDDF: 'Frankfurt', EDDM: 'Mníchov', EDDL: 'Düsseldorf', EDDT: 'Berlín Tegel',
+    EDDP: 'Lipsko', EDDK: 'Kolín', EDDB: 'Berlín', EDDN: 'Norimberg', EDDV: 'Hannover',
+    EDDH: 'Hamburg', EDDW: 'Brémy',
+    EHAM: 'Amsterdam', EBBR: 'Brusel', LFPG: 'Paríž CDG', LFPO: 'Paríž Orly',
+    LFPB: 'Paríž Le Bourget', LFMN: 'Nice', LFML: 'Marseille',
+    EGLL: 'Londýn Heathrow', EGKK: 'Londýn Gatwick', EGSS: 'Londýn Stansted',
+    LEMD: 'Madrid', LEBL: 'Barcelona',
+    LIRF: 'Rím Fiumicino', LIML: 'Miláno Linate', LIMC: 'Miláno Malpensa', LIPZ: 'Benátky',
+    LIPX: 'Verona', LIRP: 'Pisa',
+    LGAV: 'Atény', LTFM: 'Istanbul', LTAI: 'Antalya', LTAC: 'Ankara',
+    EKCH: 'Kodaň', ESSA: 'Štokholm', ENGM: 'Oslo', EFHK: 'Helsinki', EYVI: 'Vilnius',
+    EVRA: 'Riga', EETN: 'Tallinn',
+    UUEE: 'Moskva Šeremetevo', UUDD: 'Moskva Domodedovo',
+    OMDB: 'Dubaj', OTHH: 'Dauha'
+  };
+  function airportName(icao) {
+    return AIRPORTS[icao] || icao;
+  }
+  // route formát: "EDDF-EPKT" (prípadne "EDDF EPKT" / "EDDF - EPKT")
+  function routeParts(route) {
+    if (!route) return null;
+    var m = String(route).toUpperCase().match(/([A-Z]{4})/g);
+    if (!m || m.length < 2) return null;
+    return { from: m[0], to: m[1] };
+  }
+
   function popupHtml(a) {
     var cs = (a.callsign || '').trim() || a.icao24;
     var lines = ['<b>' + cs.toUpperCase() + '</b> <small>(' + a.icao24 + ')</small>'];
@@ -161,6 +196,7 @@
   function normAdsb(a, src) {
     return {
       icao24: a.hex, callsign: a.flight, reg: a.r || null, type: a.t || null, country: null,
+      route: a.route || null,
       lat: a.lat, lon: a.lon,
       altFt: (a.alt_baro === 'ground') ? 0 : a.alt_baro,
       onGround: (a.alt_baro === 'ground'),
@@ -172,7 +208,7 @@
 
   function normOpenSky(s) {
     return {
-      icao24: s[0], callsign: s[1], reg: null, type: null, country: s[2],
+      icao24: s[0], callsign: s[1], reg: null, type: null, country: s[2], route: null,
       lat: s[6], lon: s[5],
       altFt: (s[7] != null ? s[7] * FT : null),
       onGround: !!s[8],
@@ -324,6 +360,21 @@
     document.getElementById('sheetSub').textContent = sub.join(' · ') || ('hex ' + a.icao24);
     document.getElementById('sheetBody').innerHTML = sheetBodyHtml(a);
     sheetEl.classList.add('open');
+    // ak trasa chýba, skúsime ju dotiahnuť podľa callsignu (adsb.lol)
+    if (!routeParts(a.route) && (a.callsign || '').trim() && !a.routeTried) {
+      a.routeTried = true;
+      fetchTimeout('https://api.adsb.lol/v2/callsign/' + encodeURIComponent(a.callsign.trim()))
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          var b = (d.ac || [])[0];
+          if (b && b.route) {
+            a.route = b.route;
+            if (planes[a.icao24]) planes[a.icao24].route = b.route;
+            if (selected === a.icao24) openSheet(planes[a.icao24] || a);
+          }
+        })
+        .catch(function () {});
+    }
   }
   window.__skySheetClose = function () { selected = null; closeSheet(); drawTrail(); renderSelection(); };
 
@@ -340,6 +391,10 @@
     var trk = a.track != null ? Math.round(a.track) + '°' : '–';
     var html = '';
     if (a.emergency && a.emergency !== 'none') html += '<div class="alert">⚠ NÚDZOVÝ STAV: ' + a.emergency + '</div>';
+    var rp = routeParts(a.route);
+    if (rp) {
+      html += '<div class="routeline">🛫 ' + airportName(rp.from) + ' <span class="arrow">→</span> 🛬 ' + airportName(rp.to) + '</div>';
+    }
     html += '<div class="sheet-grid">' +
       cell('Výška', altFt + ' ft') +
       cell('Výška (m)', altM + ' m') +
