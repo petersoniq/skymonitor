@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '3.0.0';
+  var VERSION = '3.1.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -17,12 +17,35 @@
   var DIST_NM = 120; // Slovensko a okolie – menšie dáta, rýchlejšia odpoveď
 
   var SK_BOUNDS = L.latLngBounds([46.5, 16.0], [49.6, 22.6]);
+
+  // Načítanie: pohľad na Slovensko; po prvom pokuse o posunutie sa mapa odomkne
+  // a je možné ju posúvať ľubovoľne (lietadlá sa dočítavajú podľa stredu mapy).
+  var mapUnlocked = false;
+  function distNm() {
+    if (!mapUnlocked) return DIST_NM;
+    var b = map.getBounds(), c = map.getCenter(), ne = b.getNorthEast();
+    var dLat = (ne.lat - c.lat) * 60;
+    var dLon = (ne.lng - c.lng) * 60 * Math.cos(c.lat * Math.PI / 180);
+    return Math.min(250, Math.max(120, Math.round(Math.sqrt(dLat * dLat + dLon * dLon))));
+  }
+
   var map = L.map('map', {
-    zoomControl: true,
+    zoomControl: false,
     minZoom: 7,
     maxBounds: SK_BOUNDS.pad(0.2),
     maxBoundsViscosity: 0.9
   }).setView([48.7, 19.5], 8);
+  L.control.zoom({ position: 'bottomleft' }).addTo(map);
+  function unlockMap() {
+    if (mapUnlocked) return;
+    mapUnlocked = true;
+    map.setMaxBounds(null);
+    map.setMinZoom(3);
+    dbg('mapa odomknutá – voľné posúvanie');
+  }
+  map.on('dragstart', unlockMap);
+  map.on('wheel', function (e) { if (e.originalEvent && e.originalEvent.deltaY > 0) unlockMap(); });
+
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 18,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | Data: adsb.lol / adsb.fi / airplanes.live / OpenSky'
@@ -114,7 +137,7 @@
     if (a.country) lines.push('Krajina: ' + a.country);
     lines.push('Rýchlosť: ' + fmt(a.speedKmh, 'km/h') + ' (' + fmt(a.speedKt, 'kt') + ')');
     lines.push('Výška: ' + fmt(a.altFt, 'ft') + ' (' + fmt(a.altFt != null ? a.altFt / FT : null, 'm') + ')');
-    lines.push('Vertikálna rýchlosť: ' + fmt(a.vrateFpm, 'ft/min'));
+    lines.push('Vertikálna rýchlosť: ' + fmt(a.vrateFpm, 'ft/min') + '');
     lines.push('Kurz: ' + fmt(a.track, '°'));
     lines.push('Squawk: ' + (a.squawk || '–'));
     lines.push('Na zemi: ' + (a.onGround ? 'áno' : 'nie'));
@@ -163,7 +186,7 @@
   // ---------- zdroje ----------
   function srcRadius(base, name) {
     var c = map.getCenter();
-    var url = base + '/lat/' + c.lat.toFixed(4) + '/lon/' + c.lng.toFixed(4) + '/dist/' + DIST_NM;
+    var url = base + '/lat/' + c.lat.toFixed(4) + '/lon/' + c.lng.toFixed(4) + '/dist/' + distNm();
     return fetchTimeout(url).then(function (r) {
       dbg('odpoveď ' + name + ' HTTP ' + r.status + ', ' + (r.headers.get('content-length') || '?') + ' B');
       if (!r.ok) throw new Error(name + ' HTTP ' + r.status);
@@ -195,7 +218,7 @@
 
   function fetchViaProxy2() {
     var c = map.getCenter();
-    var target = 'https://api.adsb.lol/v2/lat/' + c.lat.toFixed(4) + '/lon/' + c.lng.toFixed(4) + '/dist/' + DIST_NM;
+    var target = 'https://api.adsb.lol/v2/lat/' + c.lat.toFixed(4) + '/lon/' + c.lng.toFixed(4) + '/dist/' + distNm();
     var url = 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(target);
     return fetchTimeout(url, 30000).then(function (r) {
       if (!r.ok) throw new Error('proxy2 HTTP ' + r.status);
@@ -216,7 +239,7 @@
 
   function fetchViaProxy() {
     var c = map.getCenter();
-    var target = 'https://api.adsb.lol/v2/lat/' + c.lat.toFixed(4) + '/lon/' + c.lng.toFixed(4) + '/dist/' + DIST_NM;
+    var target = 'https://api.adsb.lol/v2/lat/' + c.lat.toFixed(4) + '/lon/' + c.lng.toFixed(4) + '/dist/' + distNm();
     var urls = [
       { name: 'allorigins', u: 'https://api.allorigins.win/raw?url=' + encodeURIComponent(target) },
       { name: 'codetabs', u: 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(target) },
