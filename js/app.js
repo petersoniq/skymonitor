@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.5.0';
+  var VERSION = '2.0.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -33,6 +33,24 @@
   var timer = null;
   var lastFetch = 0;
   var lastSource = '';
+
+  // ---------- obľúbené ----------
+  function loadFavs() {
+    try { return JSON.parse(localStorage.getItem('skymon-favs') || '{}'); } catch (e) { return {}; }
+  }
+  function saveFavs() {
+    try { localStorage.setItem('skymon-favs', JSON.stringify(favs)); } catch (e) {}
+  }
+  var favs = loadFavs();
+  window.__skyFav = function (icao24) {
+    if (favs[icao24]) { delete favs[icao24]; } else { favs[icao24] = true; }
+    saveFavs();
+    if (markers[icao24]) {
+      var p = planes[icao24];
+      markers[icao24].setIcon(planeIcon(p.track, p.altFt, icao24 === selected, !!favs[icao24]));
+      markers[icao24].setPopupContent(popupHtml(p));
+    }
+  };
 
   function dbg(msg) {
     // tichý režim – len do konzoly (F12), žiadny vizuálny panel
@@ -65,15 +83,18 @@
     return ICON_COLORS[0];
   }
 
-  function planeIcon(heading, altFt, isSel) {
+  function planeIcon(heading, altFt, isSel, isFav) {
     var c = colorFor(altFt);
-    var ring = isSel ? '<circle cx="12" cy="12" r="10.5" fill="none" stroke="#d43f3f" stroke-width="1.2"/>' : '';
+    var ring = isFav
+      ? '<circle cx="12" cy="12" r="10.5" fill="none" stroke="#f5b301" stroke-width="1.4"/>'
+      : (isSel ? '<circle cx="12" cy="12" r="10.5" fill="none" stroke="#d43f3f" stroke-width="1.2"/>' : '');
+    var star = isFav ? '<path d="M19.5 4.6 L18.1 7.4 L15 7.9 L17.3 10.1 L16.7 13.2 L19.5 11.7 L22.3 13.2 L21.7 10.1 L24 7.9 L20.9 7.4 Z" fill="#f5b301" stroke="#fff" stroke-width="0.5" transform="scale(0.72) translate(1 1)"/>' : '';
     var svg =
       '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">' +
       ring +
       '<g transform="rotate(' + (heading || 0) + ' 12 12)">' +
       '<path fill="' + c + '" stroke="#fff" stroke-width="0.7" d="M12 2 L13.2 9.5 L21 12 L13.2 14.2 L13.6 17.5 L15.5 19.5 L12 18.8 L8.5 19.5 L10.4 17.5 L10.8 14.2 L3 12 L10.8 9.5 Z"/>' +
-      '</g></svg>';
+      '</g>' + star + '</svg>';
     return L.divIcon({ className: 'plane-icon', html: svg, iconSize: [26, 26], iconAnchor: [13, 13] });
   }
 
@@ -92,9 +113,19 @@
     lines.push('Squawk: ' + (a.squawk || '–'));
     lines.push('Na zemi: ' + (a.onGround ? 'áno' : 'nie'));
     if (a.emergency && a.emergency !== 'none') lines.push('<b style="color:#d43f3f">STAV: ' + a.emergency + '</b>');
+    if (a.reg) {
+      lines.push('<a href="https://www.planespotters.net/search?q=' + encodeURIComponent(a.reg) + '" target="_blank" rel="noopener">📷 Fotografie</a> · <a href="https://www.flightradar24.com/' + encodeURIComponent(a.reg) + '" target="_blank" rel="noopener">🔎 FR24</a>');
+    } else if ((a.callsign || '').trim()) {
+      lines.push('<a href="https://www.planespotters.net/search?q=' + encodeURIComponent((a.callsign || '').trim()) + '" target="_blank" rel="noopener">📷 Fotografie</a>');
+    }
     lines.push('<small>Zdroj: ' + a.src + ' • dráha: ' + ((a.trail || []).length) + ' bodov</small>');
-    lines.push('<button onclick="window.__skyFollow(&#39;' + a.icao24 + '&#39;)" style="margin-top:6px;padding:5px 10px;border:none;border-radius:6px;background:#0b3d5c;color:#fff;cursor:pointer">' +
-      (follow === a.icao24 ? 'Prestaň sledovať' : 'Sleduj tento let') + '</button>');
+    var btnStyle = 'padding:5px 10px;border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:12px;';
+    lines.push('<div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap">' +
+      '<button onclick="window.__skyFollow(&#39;' + a.icao24 + '&#39;)" style="' + btnStyle + 'background:#0b3d5c;">' +
+        (follow === a.icao24 ? '⏹ Ukončiť sledovanie' : '🎯 Sledovať') + '</button>' +
+      '<button onclick="window.__skyFav(&#39;' + a.icao24 + '&#39;)" style="' + btnStyle + 'background:' + (favs[a.icao24] ? '#b8860b' : '#f5b301') + ';color:#3a2a00;">' +
+        (favs[a.icao24] ? '★ V obľúbených' : '☆ Obľúbené') + '</button>' +
+      '</div>');
     return '<div class="plane-popup">' + lines.join('<br>') + '</div>';
   }
 
@@ -235,10 +266,10 @@
       var isSel = (selected === a.icao24);
       if (markers[a.icao24]) {
         markers[a.icao24].setLatLng([a.lat, a.lon]);
-        markers[a.icao24].setIcon(planeIcon(a.track, a.altFt, isSel));
+        markers[a.icao24].setIcon(planeIcon(a.track, a.altFt, isSel, !!favs[a.icao24]));
         markers[a.icao24].setPopupContent(popupHtml(a));
       } else {
-        var m = L.marker([a.lat, a.lon], { icon: planeIcon(a.track, a.altFt, isSel) })
+        var m = L.marker([a.lat, a.lon], { icon: planeIcon(a.track, a.altFt, isSel, !!favs[a.icao24]) })
           .addTo(map)
           .bindPopup(popupHtml(a));
         m.on('click', function () { selected = a.icao24; drawTrail(); renderSelection(); });
@@ -261,7 +292,7 @@
   function renderSelection() {
     Object.keys(markers).forEach(function (k) {
       var p = planes[k];
-      if (markers[k]) markers[k].setIcon(planeIcon(p.track, p.altFt, k === selected));
+      if (markers[k]) markers[k].setIcon(planeIcon(p.track, p.altFt, k === selected, !!favs[k]));
     });
   }
 
@@ -293,6 +324,9 @@
   }
 
   map.on('moveend zoomend', refresh);
+  var mapEl = map.getContainer();
+  map.on('zoomstart', function () { mapEl.classList.add('zooming'); });
+  map.on('zoomend', function () { mapEl.classList.remove('zooming'); });
   map.on('dragstart', function () { follow = null; });
 
   // sledovanie z popupu
