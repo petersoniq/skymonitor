@@ -14,25 +14,36 @@ jobs:
     steps:
       - name: Stiahni lietadlá a ulož do vetvy data
         run: |
-          ok=0
-          for url in \
-            "https://api.adsb.lol/v2/lat/48.7/lon/19.5/dist/200" \
-            "https://opendata.adsb.fi/api/v2/lat/48.7/lon/19.5/dist/200"; do
-            for i in 1 2 3; do
-              curl -sL --max-time 25 "$url" -o data.json
-              if jq -e '(.ac // .aircraft) | length' data.json > /dev/null 2>&1; then
-                ok=1
-                break
-              fi
-              sleep 3
+          rm -f part-*.json tmp.json
+          n=0
+          regions=0
+          for c in "48.7 19.5" "48.11 16.57" "47.44 19.26" "50.1 14.26" "50.08 19.79" "52.17 20.97" "45.78 16.0" "46.05 14.5"; do
+            lat=${c% *}
+            lon=${c#* }
+            got=0
+            for src in "api.adsb.lol/v2" "opendata.adsb.fi/api/v2"; do
+              for i in 1 2; do
+                curl -sL --max-time 25 "https://$src/lat/$lat/lon/$lon/dist/250" -o tmp.json
+                if jq -e '(.ac // .aircraft) | length' tmp.json > /dev/null 2>&1; then
+                  got=1
+                  break
+                fi
+                sleep 2
+              done
+              [ "$got" -eq 1 ] && break
             done
-            [ "$ok" -eq 1 ] && break
+            if [ "$got" -eq 1 ]; then
+              cp tmp.json "part-$n.json"
+              n=$((n+1))
+              regions=$((regions+1))
+            fi
           done
-          if [ "$ok" -ne 1 ]; then
+          if [ "$n" -eq 0 ]; then
             echo "VAROVANIE: všetky zdroje zlyhali, zostáva stará cache"
             exit 0
           fi
-          jq '{updated: (now|floor), ac: (.ac // .aircraft)}' data.json > sk.json
+          jq -s '[.[] | (.ac // .aircraft)] | flatten | map(select(.lat != null)) | unique_by(.hex) | {updated: (now|floor), ac: .}' part-*.json > sk.json
+          echo "OK: $regions regionov, $(jq '.ac | length' sk.json) lietadiel"
           mkdir repo && cd repo
           git init -q
           git config user.name "skymonitor-bot"
