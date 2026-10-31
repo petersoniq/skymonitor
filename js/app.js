@@ -10,7 +10,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '3.9.0';
+  var VERSION = '4.0.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -153,8 +153,16 @@
           .addTo(pinLayer).bindTooltip(x[1] + ' ' + info.name + ' (' + info.icao + ')', { direction: 'top' });
       });
       if (rt.from.lat != null && rt.to.lat != null) {
-        L.polyline(gcPoints(rt.from.lat, rt.from.lon, rt.to.lat, rt.to.lon), { color: '#00897b', weight: 2.5, opacity: 0.85 })
-          .addTo(pinLayer).bindTooltip('📌 ' + ((planes[hex] && (planes[hex].callsign || '').trim()) || hex).toUpperCase());
+        var pp = planes[hex];
+        var rpx = (pp && pp.lat != null) ? routeProgress(rt, pp) : null;
+        var gp = rpx ? rpx.gpts : gcPoints(rt.from.lat, rt.from.lon, rt.to.lat, rt.to.lon);
+        var tip = '📌 ' + ((pp && (pp.callsign || '').trim()) || hex).toUpperCase();
+        if (rpx && rpx.idx > 0) {
+          L.polyline(gp.slice(0, rpx.idx + 1), { color: '#00897b', weight: 2.5, opacity: 0.9 }).addTo(pinLayer).bindTooltip(tip);
+          L.polyline(gp.slice(rpx.idx), { color: '#00897b', weight: 2, dashArray: '6 6', opacity: 0.55 }).addTo(pinLayer);
+        } else {
+          L.polyline(gp, { color: '#00897b', weight: 2.5, opacity: 0.85 }).addTo(pinLayer).bindTooltip(tip);
+        }
       }
     });
   }
@@ -441,6 +449,16 @@
             Math.sin(dLon / 2) * Math.sin(dLon / 2);
     return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
   }
+  // poloha lietadla na trase: najbližší bod veľkej kružnice -> presný progres
+  function routeProgress(rt, a) {
+    var gpts = gcPoints(rt.from.lat, rt.from.lon, rt.to.lat, rt.to.lon);
+    var best = 0, bestD = Infinity;
+    for (var i = 0; i < gpts.length; i++) {
+      var d = distKm(a.lat, a.lon, gpts[i][0], gpts[i][1]);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return { gpts: gpts, idx: best, offKm: bestD, flownFrac: best / (gpts.length - 1) };
+  }
 
   // trasa z adsbdb (databáza letových trás, free bez kľúča), cacheovaná podľa callsignu
   var routeCache = {};
@@ -514,15 +532,15 @@
   }
 
   // ---------- zdroje ----------
-  // mriežka bodov pokrývajúca celý výrez mapy (max 6 bodov, každý do 250 NM)
+  // mriežka bodov pokrývajúca celý výrez mapy (až 5×4 bodov, každý do 250 NM)
   function gridPoints() {
     var b = map.getBounds(), c = map.getCenter();
     var ne = b.getNorthEast(), sw = b.getSouthWest();
     var wNm = Math.abs(ne.lng - sw.lng) * 60 * Math.cos(c.lat * Math.PI / 180);
     var hNm = Math.abs(ne.lat - sw.lat) * 60;
-    var r = Math.min(250, Math.max(120, Math.round(Math.sqrt(wNm * wNm + hNm * hNm) / 2 / 1.6)));
-    var cols = Math.max(1, Math.min(3, Math.ceil(wNm / (2 * r * 0.85))));
-    var rows = Math.max(1, Math.min(2, Math.ceil(hNm / (2 * r * 0.85))));
+    var r = 250;
+    var cols = Math.max(1, Math.min(5, Math.ceil(wNm / (2 * r * 0.8))));
+    var rows = Math.max(1, Math.min(4, Math.ceil(hNm / (2 * r * 0.8))));
     var pts = [];
     for (var i = 0; i < cols; i++) {
       for (var j = 0; j < rows; j++) {
@@ -699,7 +717,14 @@
       }).addTo(airportLayer).bindTooltip(x[1] + ' ' + info.name + ' (' + info.icao + ')', { direction: 'top' });
     });
     if (rt.from.lat != null && rt.to.lat != null) {
-      L.polyline(gcPoints(rt.from.lat, rt.from.lon, rt.to.lat, rt.to.lon), { color: '#1e73c8', weight: 2, dashArray: '6 6', opacity: 0.75 }).addTo(airportLayer);
+      var rp1 = (a.lat != null) ? routeProgress(rt, a) : null;
+      var gpts1 = rp1 ? rp1.gpts : gcPoints(rt.from.lat, rt.from.lon, rt.to.lat, rt.to.lon);
+      if (rp1 && rp1.idx > 0) {
+        L.polyline(gpts1.slice(0, rp1.idx + 1), { color: '#1e73c8', weight: 2.5, opacity: 0.9 }).addTo(airportLayer); // preletaná časť
+        L.polyline(gpts1.slice(rp1.idx), { color: '#1e73c8', weight: 2, dashArray: '6 6', opacity: 0.55 }).addTo(airportLayer); // zostáva
+      } else {
+        L.polyline(gpts1, { color: '#1e73c8', weight: 2, dashArray: '6 6', opacity: 0.75 }).addTo(airportLayer);
+      }
     }
   }
   function openSheet(a) {
@@ -749,7 +774,8 @@
               '<span class="leg">🛬 ' + rt.to.name + ' <small>(' + rt.to.icao + ')</small></span></div>';
       if (rt.from.lat != null && rt.to.lat != null && a.lat != null) {
         var dTot = distKm(rt.from.lat, rt.from.lon, rt.to.lat, rt.to.lon);
-        var dFlown = distKm(rt.from.lat, rt.from.lon, a.lat, a.lon);
+        var rp0 = routeProgress(rt, a);
+        var dFlown = dTot * rp0.flownFrac;
         var pct = Math.max(0, Math.min(100, Math.round(dFlown / dTot * 100)));
         var dLeft = Math.max(0, Math.round(dTot - dFlown));
         html += '<div class="routeprog" title="' + pct + ' % preletané"><span style="width:' + pct + '%"></span></div>';
@@ -764,9 +790,7 @@
 
     // overenie: poloha by mala ležať zhruba na trase (callsigny sa denne opakujú, adsbdb môže mať iný sektor)
     if (rt && rt.from.lat != null && rt.to.lat != null && a.lat != null) {
-      var gpts = gcPoints(rt.from.lat, rt.from.lon, rt.to.lat, rt.to.lon);
-      var minD = Infinity;
-      gpts.forEach(function (pt) { var d = distKm(a.lat, a.lon, pt[0], pt[1]); if (d < minD) minD = d; });
+      var minD = routeProgress(rt, a).offKm;
       var nearEnd = (distKm(a.lat, a.lon, rt.from.lat, rt.from.lon) < 150) || (distKm(a.lat, a.lon, rt.to.lat, rt.to.lon) < 150);
       if (!nearEnd && minD > 250) {
         html += '<div class="routewarn">⚠ Pozícia je ~' + Math.round(minD) + ' km mimo trasy ' + rt.from.icao + ' → ' + rt.to.icao + '. Callsigny aeroliniek sa denne opakujú – zobrazená trasa z databázy adsbdb zodpovedá možno inému sektoru/dňu. Poloha lietadla je priamo z ADS-B a je pravá.</div>';
@@ -830,10 +854,10 @@
   // limit počtu zobrazených lietadiel podľa priblíženia (pri veľkom záberu menej)
   function planeCap() {
     var z = map.getZoom();
-    if (z <= 4) return 150;
-    if (z <= 5) return 250;
-    if (z <= 6) return 350;
-    return 400;
+    if (z <= 4) return 500;
+    if (z <= 5) return 700;
+    if (z <= 6) return 800;
+    return 1000;
   }
 
   function renderStates(arr) {
@@ -902,6 +926,21 @@
         }
         saveLastStates(arr);
         renderStates(arr);
+        // pri širokom zábere doplň lietadlá z repo-cache (celá Európa, aktualizácia každých 5 min)
+        if (map.getZoom() <= 5 && lastSource !== 'repo-cache') {
+          fetchRepoData().then(function (repo) {
+            var bnd = map.getBounds().pad(0.2);
+            var seen = {};
+            arr.forEach(function (a) { seen[a.icao24] = 1; });
+            var extra = repo.filter(function (a) {
+              return a.lat != null && !seen[a.icao24] && bnd.contains([a.lat, a.lon]);
+            });
+            if (extra.length) {
+              renderStates(arr.concat(extra));
+              dbg('repo-cache doplnok: +' + extra.length + ' lietadiel');
+            }
+          }).catch(function (e) { dbg('repo-cache doplnok zlyhal: ' + e.message); });
+        }
         if (follow && planes[follow]) {
           map.setView([planes[follow].lat, planes[follow].lon], map.getZoom(), { animate: false });
         }
