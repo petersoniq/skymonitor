@@ -11,9 +11,6 @@ permissions:
 jobs:
   update:
     runs-on: ubuntu-latest
-    env:
-      OPENSKY_ID: ${{ secrets.OPENSKY_CLIENT_ID }}
-      OPENSKY_SECRET: ${{ secrets.OPENSKY_CLIENT_SECRET }}
     steps:
       - name: Stiahni lietadlá a ulož do vetvy data
         run: |
@@ -42,6 +39,8 @@ jobs:
             fi
           done
           # ---------- OpenSky (OAuth2, kredity 4000/deň): celá Európa v jednom dotaze ----------
+          OPENSKY_ID="${{ secrets.OPENSKY_CLIENT_ID }}"
+          OPENSKY_SECRET="${{ secrets.OPENSKY_CLIENT_SECRET }}"
           if [ -n "$OPENSKY_ID" ] && [ -n "$OPENSKY_SECRET" ]; then
             TOKEN=$(curl -s --max-time 15 -X POST \
               "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token" \
