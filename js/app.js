@@ -10,7 +10,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '4.0.1';
+  var VERSION = '4.1.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -1125,8 +1125,38 @@
     }
   };
 
+  // ---------- aktualizácie aplikácie: banner ↻ načíta celú appku znova ----------
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').then(function (r) { dbg('SW zaregistrovaný'); }).catch(function (e) { dbg('SW chyba: ' + e.message); });
+  }
+  var newWorker = null;
+  window.__skyUpdate = function () {
+    if (newWorker) newWorker.postMessage('SKIP_WAITING');
+    else location.reload();
+  };
+  if ('serviceWorker' in navigator) {
+    var swReloadArmed = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (swReloadArmed) { swReloadArmed = false; location.reload(); }
+    });
+    setInterval(function () {
+      navigator.serviceWorker.getRegistration().then(function (r) { if (r) r.update(); }).catch(function () {});
+    }, 15 * 60 * 1000);
+    navigator.serviceWorker.getRegistration().then(function (r) {
+      if (!r) return;
+      r.addEventListener('updatefound', function () {
+        var nw = r.installing;
+        if (!nw) return;
+        nw.addEventListener('statechange', function () {
+          if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+            newWorker = nw;
+            var b = document.getElementById('updBar');
+            if (b) b.style.display = 'flex';
+            dbg('nová verzia nainštalovaná – čakám na potvrdenie používateľa');
+          }
+        });
+      });
+    });
   }
 
   setTheme((function () { try { return localStorage.getItem('skymon-theme') === 'dark'; } catch (e) { return false; } })());
