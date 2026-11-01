@@ -10,7 +10,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '4.2.0';
+  var VERSION = '4.3.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -759,6 +759,82 @@
       });
   }
 
+  // ---------- autorefresh vybraného lietadla (každých 20 s) ----------
+  var selTimer = null, selBusy = false, lastRepoSel = 0;
+  function stopSelRefresh() { if (selTimer) { clearInterval(selTimer); selTimer = null; } }
+  function startSelRefresh() { stopSelRefresh(); selTimer = setInterval(refreshSelected, 20000); }
+  function fetchOneHex(hex) {
+    var urls = [
+      'https://opendata.adsb.fi/api/v2/hex/' + hex,
+      'https://api.airplanes.live/v2/hex/' + hex,
+      'https://api.adsb.lol/v2/hex/' + hex
+    ];
+    function step(i) {
+      if (i >= urls.length) return Promise.reject(new Error('živé zdroje nedostupné'));
+      return fetchTimeout(urls[i], 8000).then(function (r) { return r.json(); }).then(function (d) {
+        var hits = (d.ac || []).filter(function (x) { return x.lat != null; });
+        return hits.length ? hits : step(i + 1);
+      }).catch(function () { return step(i + 1); });
+    }
+    return step(0);
+  }
+  function applySelectedUpdate(hex, a) {
+    var old = planes[hex];
+    if (old) {
+      a.trail = old.trail || []; a.fromTo = old.fromTo || null;
+      a.reg = a.reg || old.reg; a.type = a.type || old.type;
+    }
+    planes[hex] = a;
+    updateTrail(a);
+    if (markers[hex]) {
+      markers[hex].setLatLng([a.lat, a.lon]);
+      markers[hex].setIcon(planeIcon(a.track, a.altFt, true, !!favs[hex], !!pins[hex]));
+    }
+    drawTrail(); drawAirports(a);
+    if (selected === hex) openSheet(a);
+    if (follow === hex) map.setView([a.lat, a.lon], map.getZoom(), { animate: false });
+  }
+  function refreshSelected() {
+    var hex = selected;
+    if (!hex || selBusy || !planes[hex]) return;
+    selBusy = true;
+    var live = (lastSource !== 'repo-cache')
+      ? fetchOneHex(hex).then(function (hits) { return normAdsb(hits[0], 'live (auto)'); })
+      : Promise.reject(new Error('repo-only'));
+    live.then(function (a) { if (selected === hex && a && a.lat != null) applySelectedUpdate(hex, a); })
+      .catch(function () {
+        if (Date.now() - lastRepoSel < 60000) return;
+        lastRepoSel = Date.now();
+        fetchRepoData().then(function (repo) {
+          var hit = repo.filter(function (x) { return x.icao24 === hex && x.lat != null; })[0];
+          if (hit && selected === hex) { applySelectedUpdate(hex, hit); dbg('autorefresh (repo-cache): ' + hex); }
+        }).catch(function () {});
+      })
+      .then(function () { selBusy = false; });
+  }
+
+  // ---------- historická dráha z repo-cache (workflow zbiera pozície každé 2 min) ----------
+  var histData = null, histTs = 0;
+  function mergeHist(a) {
+    var h = histData && histData[a.icao24];
+    if (!h || !h.length) return;
+    var t = a.trail || [];
+    var head = h.slice(0, Math.max(0, h.length - 1));
+    var merged = head.filter(function (p) {
+      return !t.some(function (q) { return Math.abs(q[0] - p[0]) < 1e-4 && Math.abs(q[1] - p[1]) < 1e-4; });
+    });
+    a.trail = merged.concat(t);
+    if (a.trail.length > 200) a.trail = a.trail.slice(-200);
+    drawTrail();
+  }
+  function ensureHistTrail(a) {
+    if (histData && Date.now() - histTs < 90000) { mergeHist(a); return; }
+    fetchTimeout('https://raw.githubusercontent.com/petersoniq/skymonitor/data/data/hist.json?_=' + Date.now(), 15000)
+      .then(function (r) { return r.json(); })
+      .then(function (d) { histData = d; histTs = Date.now(); mergeHist(a); })
+      .catch(function () {});
+  }
+
   // ---------- detailný panel (spodný sheet) ----------
   var sheetEl = null;
   function clearAirports() {
@@ -814,10 +890,12 @@
     sheetEl.classList.add('open');
     ensureRoute(a);
     ensureAircraftInfo(a);
+    ensureHistTrail(a);
     ensurePhoto(a);
+    startSelRefresh();
     drawAirports(a);
   }
-  window.__skySheetClose = function () { selected = null; closeSheet(); drawTrail(); renderSelection(); };
+  window.__skySheetClose = function () { selected = null; stopSelRefresh(); closeSheet(); drawTrail(); renderSelection(); };
 
   function sheetBodyHtml(a) {
     var cell = function (l, v) {
@@ -910,7 +988,7 @@
       var last = trail[trail.length - 1];
       if (Math.abs(last[0] - a.lat) > 0.0005 || Math.abs(last[1] - a.lon) > 0.0005) trail.push([a.lat, a.lon]);
     } else trail.push([a.lat, a.lon]);
-    if (trail.length > 80) trail.shift();
+    if (trail.length > 200) trail.shift();
     a.trail = trail;
   }
 
@@ -966,7 +1044,7 @@
         map.removeLayer(markers[k]);
         delete markers[k];
         delete planes[k];
-        if (selected === k) { selected = null; drawTrail(); closeSheet(); }
+        if (selected === k) { selected = null; stopSelRefresh(); drawTrail(); closeSheet(); }
         if (follow === k) follow = null;
       }
     });
@@ -1050,7 +1128,7 @@
   var mapEl = map.getContainer();
   map.on('zoomstart', function () { mapEl.classList.add('zooming'); });
   map.on('zoomend', function () { mapEl.classList.remove('zooming'); });
-  map.on('click', function () { if (selected) { selected = null; closeSheet(); drawTrail(); renderSelection(); } });
+  map.on('click', function () { if (selected) { selected = null; stopSelRefresh(); closeSheet(); drawTrail(); renderSelection(); } });
   map.on('dragstart', function () { follow = null; });
 
   // sledovanie z popupu
