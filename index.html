@@ -161,11 +161,28 @@
 
   .diagbtn, .iconbtn {
     display: flex; align-items: center; justify-content: center;
-    width: 44px; height: 44px; font-size: 17px; flex: none;
+    width: 42px; height: 42px; font-size: 17px; flex: none;
     background: rgba(255,255,255,.92); border: none; border-radius: 12px;
     cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.25);
   }
   .diagbtn:hover, .iconbtn:hover { background: #fff; }
+  .btnbar { display: flex; gap: 6px; flex: none; margin-left: auto; }
+
+  /* banner: dostupná nová verzia */
+  .updbar {
+    position: fixed; left: 50%; transform: translateX(-50%); bottom: 18px; z-index: 1800;
+    display: flex; align-items: center; gap: 10px;
+    background: rgba(11,61,92,.97); color: #fff;
+    padding: 10px 14px; border-radius: 14px;
+    font-size: 13.5px; font-weight: 600;
+    box-shadow: 0 6px 26px rgba(0,0,0,.45);
+    max-width: calc(100vw - 24px); flex-wrap: wrap; justify-content: center;
+  }
+  .updbar button {
+    border: none; border-radius: 9px; padding: 8px 12px;
+    background: #4aa3e8; color: #fff; font-weight: 700; cursor: pointer; font-size: 13px;
+  }
+  .updbar .updclose { background: transparent; padding: 8px 4px; font-size: 14px; }
 
   #diagPanel, #favPanel {
     position: fixed; inset: 0; z-index: 2000;
@@ -193,7 +210,6 @@
   }
 
   @media (max-width: 640px) {
-    .diagbtn, .iconbtn { width: 40px; height: 40px; font-size: 16px; }
     .sheet-title { font-size: 19px; }
     .brand small { display: none; }
     .brand { padding: 9px 12px; font-size: 15px; }
@@ -213,17 +229,24 @@
       <span>SkyMonitor<small>live pozície lietadiel</small></span>
     </div>
     <div class="status"><span class="pulse"></span><span id="status">Načítavam…</span></div>
-    <button class="iconbtn" id="refreshBtn" title="Obnoviť dáta o lietadlách" onclick="window.__skyRefresh()">↻</button>
-    <button class="iconbtn" id="themeBtn" title="Téma mapy (svetlá/tmavá)" onclick="window.__skyTheme()">🌙</button>
-    <button class="iconbtn" title="Obľúbené lietadlá" onclick="window.__skyFavPanel()">⭐</button>
-    <button class="iconbtn" title="Moja poloha" onclick="window.__skyLocate()">📍</button>
-    <button class="diagbtn" title="Diagnostika zdrojov" onclick="window.__skyDiag()">🔧</button>
-    <button class="iconbtn" id="installBtn" title="Nainštalovať aplikáciu (PWA)" onclick="window.__skyInstall()" style="display:none">⬇️</button>
+    <div class="btnbar">
+      <button class="iconbtn" id="refreshBtn" title="Obnoviť dáta o lietadlách" onclick="window.__skyRefresh()">↻</button>
+      <button class="iconbtn" id="themeBtn" title="Téma mapy (svetlá/tmavá)" onclick="window.__skyTheme()">🌙</button>
+      <button class="iconbtn" title="Obľúbené lietadlá" onclick="window.__skyFavPanel()">⭐</button>
+      <button class="iconbtn" title="Moja poloha" onclick="window.__skyLocate()">📍</button>
+      <button class="diagbtn" title="Diagnostika zdrojov" onclick="window.__skyDiag()">🔧</button>
+      <button class="iconbtn" id="installBtn" title="Nainštalovať aplikáciu (PWA)" onclick="window.__skyInstall()" style="display:none">⬇️</button>
+    </div>
   </div>
   <div class="searchrow">
     <input id="search" type="search" placeholder="Hľadať lietadlo…" autocomplete="off">
     <label class="toggle"><input type="checkbox" id="hideground"> Skryť na zemi</label>
   </div>
+</div>
+<div id="updBar" class="updbar" style="display:none">
+  <span>🆕 Nová verzia SkyMonitor je pripravená</span>
+  <button onclick="window.__skyUpdate()">↻ Načítať aplikáciu znova</button>
+  <button class="updclose" title="Skryť" onclick="this.parentElement.style.display='none'">✕</button>
 </div>
 <div id="sheet" class="sheet">
   <div class="sheet-card">
