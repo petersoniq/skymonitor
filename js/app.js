@@ -1131,7 +1131,7 @@
   }
   var newWorker = null;
   window.__skyUpdate = function () {
-    if (newWorker) newWorker.postMessage('SKIP_WAITING');
+    if (newWorker) { swReloadArmed = true; newWorker.postMessage('SKIP_WAITING'); }
     else location.reload();
   };
   if ('serviceWorker' in navigator) {
