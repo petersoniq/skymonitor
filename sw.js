@@ -1,5 +1,5 @@
 /* SkyMonitor service worker – offline app shell */
-var SHELL_CACHE = 'skymonitor-shell-v17';
+var SHELL_CACHE = 'skymonitor-shell-v18';
 var TILE_CACHE = 'skymonitor-tiles-v1';
 var API_HOSTS = ['opensky-network.org', 'api.adsb.lol', 'opendata.adsb.fi', 'api.airplanes.live', 'raw.githubusercontent.com', 'api.adsbdb.com', 'api.planespotters.net'];
 var SHELL = [
@@ -10,7 +10,10 @@ var SHELL = [
 ];
 
 self.addEventListener('install', function (e) {
-  e.waitUntil(caches.open(SHELL_CACHE).then(function (c) { return c.addAll(SHELL); }).then(function () { return self.skipWaiting(); }));
+  e.waitUntil(caches.open(SHELL_CACHE).then(function (c) { return c.addAll(SHELL); }));
+});
+self.addEventListener('message', function (e) {
+  if (e.data === 'SKIP_WAITING') self.skipWaiting();
 });
 
 self.addEventListener('activate', function (e) {
