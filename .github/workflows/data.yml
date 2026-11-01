@@ -2,11 +2,15 @@ name: Data update (repo cache)
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '*/2 * * * *'
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: data-update
+  cancel-in-progress: false
 
 jobs:
   update:
@@ -68,6 +72,13 @@ jobs:
           fi
           jq -s '[.[] | (.ac // .aircraft)] | flatten | map(select(.lat != null)) | unique_by(.hex) | map({hex, flight, r, t, alt_baro, gs, track, baro_rate, squawk, emergency, category, lat, lon}) | {updated: (now|floor), ac: .}' part-*.json > sk.json
           echo "OK: $regions regionov, $(jq '.ac | length' sk.json) lietadiel"
+          # história dráh: minulé pozície všetkých lietadiel (posledných ~20 behov = ~40 min)
+          if curl -sL --max-time 25 "https://raw.githubusercontent.com/petersoniq/skymonitor/data/data/hist.json" -o hist.json 2>/dev/null && jq -e 'type == "object"' hist.json > /dev/null 2>&1; then
+            jq -c --slurpfile o hist.json '[.ac[] | select(.lat != null) | {key: .hex, value: [[.lat, .lon]]}] | from_entries | with_entries(.value = ((($o[0][.key] // []) + .value)[-20:]))' sk.json > newhist.json
+            mv newhist.json hist.json
+          else
+            jq -c '[.ac[] | select(.lat != null) | {key: .hex, value: [[.lat, .lon]]}] | from_entries' sk.json > hist.json
+          fi
           mkdir repo && cd repo
           git init -q
           git config user.name "skymonitor-bot"
@@ -75,6 +86,7 @@ jobs:
           git checkout -q -b data
           mkdir -p data
           cp ../sk.json data/sk.json
+          cp ../hist.json data/hist.json
           git add -A
           git commit -qm "data: $(date -u +'%Y-%m-%d %H:%M') UTC"
           git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/petersoniq/skymonitor.git" data
