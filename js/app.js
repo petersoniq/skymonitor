@@ -10,7 +10,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '4.1.0';
+  var VERSION = '4.2.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -460,8 +460,75 @@
     return { gpts: gpts, idx: best, offKm: bestD, flownFrac: best / (gpts.length - 1) };
   }
 
-  // trasa z adsbdb (databáza letových trás, free bez kľúča), cacheovaná podľa callsignu
+  // ---------- hexdb.io: záloha trás + presné súradnice letísk (free, bez kľúča) ----------
   var routeCache = {};
+  function applyRoute(a, cs, v) {
+    routeCache[cs] = v;
+    if (!v) return;
+    var p = planes[a.icao24];
+    if (p) p.fromTo = v;
+    if (pins[a.icao24]) { pins[a.icao24] = v; savePins(); renderPins(); }
+    if (selected === a.icao24) openSheet(planes[a.icao24] || a);
+  }
+  function tryHexdbRoute(a, cs) {
+    dbg('trasa: skúšam hexdb.io pre ' + cs);
+    fetchTimeout('https://hexdb.io/api/v2/routes/' + encodeURIComponent(cs), 9000)
+      .then(function (r) { if (!r.ok) return null; return r.json(); })
+      .then(function (d) {
+        if (!d || !d.origin || !d.destination || d.origin.latitude == null) { routeCache[cs] = null; return; }
+        applyRoute(a, cs, {
+          from: { icao: d.origin.icao, name: d.origin.name || d.origin.icao, lat: d.origin.latitude, lon: d.origin.longitude },
+          to: { icao: d.destination.icao, name: d.destination.name || d.destination.icao, lat: d.destination.latitude, lon: d.destination.longitude },
+          airline: null
+        });
+      })
+      .catch(function () { routeCache[cs] = null; });
+  }
+  // doplnenie presných súradníc letiska z hexdb, ak ich adsbdb nedodal
+  function fillAirportCoords(rt, a) {
+    var need = [];
+    if (rt.from && rt.from.lat == null) need.push(rt.from);
+    if (rt.to && rt.to.lat == null) need.push(rt.to);
+    need.forEach(function (ap) {
+      fetchTimeout('https://hexdb.io/api/v2/airports/' + encodeURIComponent(ap.icao), 9000)
+        .then(function (r) { if (!r.ok) return null; return r.json(); })
+        .then(function (d) {
+          if (!d || d.latitude == null) return;
+          ap.lat = d.latitude; ap.lon = d.longitude;
+          if (ap.name === ap.icao && d.name) ap.name = d.name;
+          renderPins();
+          if (selected === a.icao24 && planes[a.icao24]) openSheet(planes[a.icao24]);
+        })
+        .catch(function () {});
+    });
+  }
+  // doplnenie registrácie a typu lietadla z hexdb (napr. pri dátach z OpenSky)
+  var acInfoCache = {};
+  function ensureAircraftInfo(a) {
+    if (a.reg && a.type) return;
+    var hex = a.icao24;
+    var c0 = acInfoCache[hex];
+    if (c0) {
+      if (!a.reg && c0.reg) a.reg = c0.reg;
+      if (!a.type && c0.type) a.type = c0.type;
+      return;
+    }
+    if (c0 === null && Object.prototype.hasOwnProperty.call(acInfoCache, hex)) return; // už skúšané
+    acInfoCache[hex] = null;
+    fetchTimeout('https://hexdb.io/api/v2/aircraft/' + encodeURIComponent(hex), 9000)
+      .then(function (r) { if (!r.ok) return null; return r.json(); })
+      .then(function (d) {
+        if (!d || (!d.registration && !d.icao_type_code)) return;
+        acInfoCache[hex] = { reg: d.registration, type: d.icao_type_code };
+        var p = planes[hex];
+        if (p) {
+          if (!p.reg) p.reg = d.registration;
+          if (!p.type) p.type = d.icao_type_code;
+          if (selected === hex) openSheet(p);
+        }
+      })
+      .catch(function () {});
+  }
   function ensureRoute(a) {
     var cs = (a.callsign || '').trim();
     if (!cs) return;
@@ -496,9 +563,12 @@
             if (p) p.fromTo = v;
             if (pins[a.icao24]) { pins[a.icao24] = v; savePins(); renderPins(); }
             if (selected === a.icao24) openSheet(planes[a.icao24] || a);
+            if (v.from.lat == null || v.to.lat == null) fillAirportCoords(v, a);
+          } else {
+            tryHexdbRoute(a, cs); // adsbdb trasu nepozná -> hexdb.io
           }
         })
-        .catch(function () { routeCache[cs] = null; });
+        .catch(function () { routeCache[cs] = null; tryHexdbRoute(a, cs); });
     } else if (cached) {
       a.fromTo = cached;
     }
@@ -655,8 +725,9 @@
     }).then(function (d) { return (d.states || []).map(normOpenSky); });
   }
 
-  var SOURCES = [fetchAdsbLol, fetchAdsbFi, fetchAirplanesLive, fetchOpenSky, fetchViaProxy, fetchViaProxy2, fetchRepoData];
-  var SRC_NAMES = ['adsb.lol', 'adsb.fi', 'airplanes.live', 'OpenSky', 'allorigins', 'codetabs', 'repo-cache'];
+  // adsb.lol je označená ako deprecated (ruší verejnú API) -> radšej až na treťom mieste
+  var SOURCES = [fetchAdsbFi, fetchAirplanesLive, fetchAdsbLol, fetchOpenSky, fetchViaProxy, fetchViaProxy2, fetchRepoData];
+  var SRC_NAMES = ['adsb.fi', 'airplanes.live', 'adsb.lol', 'OpenSky', 'allorigins', 'codetabs', 'repo-cache'];
   var attemptLog = [];
 
   function tryFetch(i) {
@@ -742,6 +813,7 @@
     document.getElementById('sheetBody').innerHTML = sheetBodyHtml(a);
     sheetEl.classList.add('open');
     ensureRoute(a);
+    ensureAircraftInfo(a);
     ensurePhoto(a);
     drawAirports(a);
   }
