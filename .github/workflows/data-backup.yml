@@ -1,0 +1,66 @@
+name: Data backup (OpenSky)
+
+on:
+  schedule:
+    - cron: '1-59/2 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: data-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Zalozny update (iba OpenSky, ked primarna cache stara > 2 min)
+        run: |
+          NOW=$(date +%s)
+          AGE=$(curl -sL --max-time 20 "https://raw.githubusercontent.com/petersoniq/skymonitor/data/data/sk.json" | jq -r '.updated // 0' 2>/dev/null || echo 0)
+          if [ "$((NOW - AGE))" -lt 110 ]; then
+            echo "primarna cache je cerstva ($(( (NOW - AGE) / 60 )) min), zaloha nie je potrebna"
+            exit 0
+          fi
+          echo "primarna cache je stara $(( (NOW - AGE) / 60 )) min - spustam zalohu"
+          OPENSKY_ID="${{ secrets.OPENSKY_CLIENT_ID }}"
+          OPENSKY_SECRET="${{ secrets.OPENSKY_CLIENT_SECRET }}"
+          rm -f old.json opensky.json hist.json
+          curl -sL --max-time 20 "https://raw.githubusercontent.com/petersoniq/skymonitor/data/data/sk.json" -o old.json
+          if [ -n "$OPENSKY_ID" ] && [ -n "$OPENSKY_SECRET" ]; then
+            TOKEN=$(curl -s --max-time 15 -X POST \
+              "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token" \
+              -d "grant_type=client_credentials" \
+              -d "client_id=$OPENSKY_ID" \
+              -d "client_secret=$OPENSKY_SECRET" | jq -r '.access_token // empty')
+            if [ -n "$TOKEN" ]; then
+              curl -sL --max-time 40 -H "Authorization: Bearer $TOKEN" \
+                "https://opensky-network.org/api/states/all?lamin=34&lomin=-12&lamax=62&lomax=32" -o opensky.json
+            fi
+          fi
+          if ! jq -e '.states | length' opensky.json > /dev/null 2>&1; then
+            echo "OpenSky zlyhal - nemenim cache"
+            exit 0
+          fi
+          jq -c '{ac: [.states[] | select(.[5] != null and .[6] != null and .[8] == false) | {hex: .[0], flight: .[1], alt_baro: (if .[7] == null then null else (.[7] * 3.28084 | round) end), gs: (if .[9] == null then null else (.[9] * 1.94384 | round) end), track: .[10], baro_rate: (if .[11] == null then null else (.[11] * 196.85 | round) end), squawk: .[14], lat: .[6], lon: .[5]}]}' opensky.json > part-opensky.json
+          if jq -e '.ac | length' old.json > /dev/null 2>&1; then
+            jq -s '{updated: (now|floor), ac: ([.[0].ac, .[1].ac] | flatten | unique_by(.hex) | map(select(.lat != null)))}' part-opensky.json old.json > sk.json
+          else
+            jq -s '{updated: (now|floor), ac: (.[0].ac | unique_by(.hex) | map(select(.lat != null)))}' part-opensky.json > sk.json
+          fi
+          curl -sL --max-time 20 "https://raw.githubusercontent.com/petersoniq/skymonitor/data/data/hist.json" -o hist.json
+          jq -e 'type == "object"' hist.json > /dev/null 2>&1 || echo '{}' > hist.json
+          echo "OK: $(jq '.ac | length' sk.json) lietadiel (backup)"
+          mkdir repo && cd repo
+          git init -q
+          git config user.name "skymonitor-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git checkout -q -b data
+          mkdir -p data
+          cp ../sk.json data/sk.json
+          cp ../hist.json data/hist.json
+          git add -A
+          git commit -qm "data (backup): $(date -u +'%Y-%m-%d %H:%M') UTC"
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/petersoniq/skymonitor.git" data
