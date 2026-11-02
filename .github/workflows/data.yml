@@ -74,10 +74,10 @@ jobs:
           echo "OK: $regions regionov, $(jq '.ac | length' sk.json) lietadiel"
           # história dráh: minulé pozície všetkých lietadiel (posledných ~20 behov = ~40 min)
           if curl -sL --max-time 25 "https://raw.githubusercontent.com/petersoniq/skymonitor/data/data/hist.json" -o hist.json 2>/dev/null && jq -e 'type == "object"' hist.json > /dev/null 2>&1; then
-            jq -c --slurpfile o hist.json '[.ac[] | select(.lat != null) | {key: .hex, value: [[.lat, .lon]]}] | from_entries | with_entries(.value = ((($o[0][.key] // []) + .value)[-20:]))' sk.json > newhist.json
+            jq -c --slurpfile o hist.json '[.ac[] | select(.lat != null) | {key: .hex, value: [[.lat, .lon, (.alt_baro | if . == "ground" then 0 else . end)]]}] | from_entries | with_entries(.value = ((($o[0][.key] // []) + .value)[-20:]))' sk.json > newhist.json
             mv newhist.json hist.json
           else
-            jq -c '[.ac[] | select(.lat != null) | {key: .hex, value: [[.lat, .lon]]}] | from_entries' sk.json > hist.json
+            jq -c '[.ac[] | select(.lat != null) | {key: .hex, value: [[.lat, .lon, (.alt_baro | if . == "ground" then 0 else . end)]]}] | from_entries' sk.json > hist.json
           fi
           mkdir repo && cd repo
           git init -q
