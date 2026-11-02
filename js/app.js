@@ -458,7 +458,6 @@ function dbg(msg) {
       '<path fill="' + c + '" stroke="#fff" stroke-width="0.8" stroke-linejoin="round" d="M12 1.6 L12.7 8.2 L21.7 12.4 L21.7 13.7 L12.9 12.2 L13.2 17.3 L15.7 19.4 L15.7 20.7 L12 19.7 L8.3 20.7 L8.3 19.4 L10.8 17.3 L11.1 12.2 L2.3 13.7 L2.3 12.4 L11.3 8.2 Z"/>' +
       '</g>' + star + '</svg>' + lbl + '</div>';
     return L.divIcon({ className: 'plane-icon', html: svg, iconSize: [32, 32], iconAnchor: [16, 16] });
-  });
   }
 
   function fmt(v, u) { return (v == null ? '–' : (typeof v === 'number' ? Math.round(v) : v) + (u ? ' ' + u : '')); }
