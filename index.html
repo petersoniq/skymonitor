@@ -109,6 +109,24 @@
   .favrow span { color: #667; font-size: 12.5px; }
   .favrow button { padding: 8px 12px; border: none; border-radius: 8px; background: #0b3d5c; color: #fff; cursor: pointer; font-size: 13px; flex: none; }
   .favempty { color: #667; font-size: 13.5px; line-height: 1.6; }
+  /* zoznam lietadiel (panel 📋) */
+  .listtools { display: flex; gap: 8px; padding: 12px 16px 0; align-items: center; flex-wrap: wrap; }
+  .listtools input[type="search"] { flex: 1 1 140px; min-width: 0; padding: 9px 12px; border: 1px solid #dde5ee; border-radius: 9px; font-size: 13.5px; outline: none; }
+  .listtools input[type="search"]:focus { border-color: #1e73c8; }
+  .listtools select { border: 1px solid #dde5ee; border-radius: 9px; padding: 9px 10px; font-size: 13px; background: #fff; color: #0b3d5c; }
+  .listemg { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: #456; white-space: nowrap; }
+  .listemg input { accent-color: #d43f3f; }
+  .listout { padding: 10px 16px 16px; max-height: 62vh; overflow: auto; }
+  .listrow { display: flex; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 10px; cursor: pointer; align-items: center; }
+  .listrow:hover, .listrow:active { background: #eaf1f8; }
+  .listrow.sel { background: #e3eef9; }
+  .lr-main { min-width: 0; }
+  .lr-main b { color: #0b3d5c; font-size: 15px; display: block; }
+  .lr-main span { color: #667; font-size: 12px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lr-side { text-align: right; flex: none; }
+  .lr-side span { display: block; font-size: 12px; color: #345; font-weight: 600; }
+  .diaghead small { font-weight: 400; color: #889; }
+
   .plane-photo img { width: 100%; border-radius: 10px; display: block; margin: 8px 0 2px; }
   .photo-credit { font-size: 11px; color: #8899a6; margin-bottom: 4px; }
   .routeline.muted { background: #f4f7fa; color: #8899a6; font-weight: 400; }
@@ -239,6 +257,7 @@
       <button class="iconbtn" id="refreshBtn" title="Obnoviť dáta o lietadlách" onclick="window.__skyRefresh()">↻</button>
       <button class="iconbtn" id="themeBtn" title="Téma mapy (svetlá/tmavá)" onclick="window.__skyTheme()">🌙</button>
       <button class="iconbtn" title="Obľúbené lietadlá" onclick="window.__skyFavPanel()">⭐</button>
+      <button class="iconbtn" title="Zoznam lietadiel" onclick="window.__skyList()">📋</button>
       <button class="iconbtn" title="Moja poloha" onclick="window.__skyLocate()">📍</button>
       <button class="diagbtn" title="Diagnostika zdrojov" onclick="window.__skyDiag()">🔧</button>
       <button class="iconbtn" id="installBtn" title="Nainštalovať aplikáciu (PWA)" onclick="window.__skyInstall()" style="display:none">⬇️</button>
@@ -276,6 +295,22 @@
   <div class="diagcard">
     <div class="diaghead"><span>⭐ Obľúbené lietadlá</span><button onclick="window.__skyFavPanelClose()">✕</button></div>
     <div id="favOut"></div>
+  </div>
+</div>
+<div id="listPanel" onclick="if(event.target===this)window.__skyListClose()">
+  <div class="diagcard">
+    <div class="diaghead"><span>📋 Zoznam lietadiel <small id="listCount"></small></span><button onclick="window.__skyListClose()">✕</button></div>
+    <div class="listtools">
+      <input id="listFilter" type="search" placeholder="Filtruj: callsign / hex / reg…" oninput="window.__skyListFilter(this.value)">
+      <select onchange="window.__skyListSort(this.value)">
+        <option value="alt">Najvyššie</option>
+        <option value="spd">Najrýchlejšie</option>
+        <option value="cs">Abeceda</option>
+        <option value="me">Najbližšie</option>
+      </select>
+      <label class="listemg"><input type="checkbox" onchange="window.__skyListEmg(this.checked)">⚠️ Núdzové</label>
+    </div>
+    <div id="listOut" class="listout"></div>
   </div>
 </div>
 <div id="diagPanel" onclick="if(event.target===this)window.__skyDiagClose()">
