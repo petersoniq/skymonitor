@@ -10,7 +10,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '4.5.1';
+  var VERSION = '5.0.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -112,7 +112,7 @@
     saveFavs();
     if (markers[icao24]) {
       var p = planes[icao24];
-      markers[icao24].setIcon(planeIcon(p.track, p.altFt, icao24 === selected, !!favs[icao24], !!pins[icao24]));
+      markers[icao24].setIcon(planeIcon(p.track, p.altFt, icao24 === selected, !!favs[icao24], !!pins[icao24], csOf(p)));
       if (icao24 === selected) openSheet(p);
     }
   };
@@ -179,7 +179,7 @@
     renderPins();
     if (markers[hex]) {
       var pp = planes[hex];
-      markers[hex].setIcon(planeIcon(pp.track, pp.altFt, hex === selected, !!favs[hex], !!pins[hex]));
+      markers[hex].setIcon(planeIcon(pp.track, pp.altFt, hex === selected, !!favs[hex], !!pins[hex], csOf(pp)));
       if (hex === selected) openSheet(pp);
     }
   };
@@ -436,21 +436,29 @@ function dbg(msg) {
     return ICON_COLORS[0];
   }
 
-  function planeIcon(heading, altFt, isSel, isFav, isPin) {
+  function csOf(a) { return (a && a.callsign ? String(a.callsign).trim() : '') || null; }
+
+  function planeIcon(heading, altFt, isSel, isFav, isPin, cs) {
     var c = colorFor(altFt);
     var ring = isPin
       ? '<circle cx="12" cy="12" r="10.5" fill="none" stroke="#8e24aa" stroke-width="1.6"/>'
       : (isFav
         ? '<circle cx="12" cy="12" r="10.5" fill="none" stroke="#f5b301" stroke-width="1.4"/>'
-        : (isSel ? '<circle cx="12" cy="12" r="10.5" fill="none" stroke="#d43f3f" stroke-width="1.2"/>' : ''));
+        : (isSel ? '<circle cx="12" cy="12" r="10.5" fill="none" stroke="#d43f3f" stroke-width="1.2"/>' : '')));
     var star = isFav ? '<path d="M19.5 4.6 L18.1 7.4 L15 7.9 L17.3 10.1 L16.7 13.2 L19.5 11.7 L22.3 13.2 L21.7 10.1 L24 7.9 L20.9 7.4 Z" fill="#f5b301" stroke="#fff" stroke-width="0.5" transform="scale(0.72) translate(1 1)"/>' : '';
+    var lbl = '';
+    if (cs && (isSel || isFav || isPin || map.getZoom() >= 11)) {
+      lbl = '<span class="cslbl">' + cs.toUpperCase() + '</span>';
+    }
     var svg =
+      '<div class="plane-wrap">' +
       '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">' +
       ring +
       '<g transform="rotate(' + (heading || 0) + ' 12 12)">' +
-      '<path fill="' + c + '" stroke="#fff" stroke-width="0.7" d="M12 2 L13.2 9.5 L21 12 L13.2 14.2 L13.6 17.5 L15.5 19.5 L12 18.8 L8.5 19.5 L10.4 17.5 L10.8 14.2 L3 12 L10.8 9.5 Z"/>' +
-      '</g>' + star + '</svg>';
+      '<path fill="' + c + '" stroke="#fff" stroke-width="0.8" stroke-linejoin="round" d="M12 1.6 L12.7 8.2 L21.7 12.4 L21.7 13.7 L12.9 12.2 L13.2 17.3 L15.7 19.4 L15.7 20.7 L12 19.7 L8.3 20.7 L8.3 19.4 L10.8 17.3 L11.1 12.2 L2.3 13.7 L2.3 12.4 L11.3 8.2 Z"/>' +
+      '</g>' + star + '</svg>' + lbl + '</div>';
     return L.divIcon({ className: 'plane-icon', html: svg, iconSize: [32, 32], iconAnchor: [16, 16] });
+  });
   }
 
   function fmt(v, u) { return (v == null ? '–' : (typeof v === 'number' ? Math.round(v) : v) + (u ? ' ' + u : '')); }
@@ -857,7 +865,7 @@ function dbg(msg) {
     updateTrail(a);
     if (markers[hex]) {
       markers[hex].setLatLng([a.lat, a.lon]);
-      markers[hex].setIcon(planeIcon(a.track, a.altFt, true, !!favs[hex], !!pins[hex]));
+      markers[hex].setIcon(planeIcon(a.track, a.altFt, true, !!favs[hex], !!pins[hex], csOf(a)));
     }
     drawTrail(); drawAirports(a);
     if (selected === hex) openSheet(a);
@@ -965,6 +973,37 @@ function dbg(msg) {
     drawAirports(a);
   }
   window.__skySheetClose = function () { selected = null; stopSelRefresh(); closeSheet(); drawTrail(); renderSelection(); };
+  // ---------- swipe-to-close: potiahnutie detailu dole ----------
+  (function () {
+    var sy = 0, dy = 0, vy = 0, lastY = 0, lastT = 0, drag = false;
+    function cardEl() { return document.querySelector('.sheet-card'); }
+    document.addEventListener('touchstart', function (e) {
+      if (!sheetEl || !sheetEl.classList.contains('open')) return;
+      var c = cardEl(); if (!c) return;
+      var r = c.getBoundingClientRect();
+      if (e.touches[0].clientY < r.top || e.touches[0].clientY > r.top + 64) return;
+      drag = true; sy = e.touches[0].clientY; dy = 0; vy = 0; lastY = sy; lastT = Date.now();
+      c.classList.add('dragging');
+    }, { passive: true });
+    document.addEventListener('touchmove', function (e) {
+      if (!drag) return;
+      var c = cardEl(); if (!c) return;
+      var y = e.touches[0].clientY;
+      dy = y - sy;
+      if (dy > 0) { e.preventDefault(); c.style.transform = 'translateY(' + dy + 'px)'; }
+      var now = Date.now(), dt = now - lastT;
+      if (dt > 0) { vy = (y - lastY) / dt; lastY = y; lastT = now; }
+    }, { passive: false });
+    function finish() {
+      if (!drag) return;
+      drag = false;
+      var c = cardEl();
+      if (c) { c.classList.remove('dragging'); c.style.transform = ''; }
+      if (dy > 90 || (dy > 24 && vy > 0.4)) window.__skySheetClose();
+    }
+    document.addEventListener('touchend', finish);
+    document.addEventListener('touchcancel', finish);
+  })();
 
   // výškový profil dráhy – jednoduchý SVG graf bez knižnice
   function profileSvg(a) {
@@ -1127,10 +1166,10 @@ function dbg(msg) {
       var isSel = (selected === a.icao24);
       if (markers[a.icao24]) {
         markers[a.icao24].setLatLng([a.lat, a.lon]);
-        markers[a.icao24].setIcon(planeIcon(a.track, a.altFt, isSel, !!favs[a.icao24], !!pins[a.icao24]));
+        markers[a.icao24].setIcon(planeIcon(a.track, a.altFt, isSel, !!favs[a.icao24], !!pins[a.icao24], csOf(a)));
         if (selected === a.icao24) openSheet(a);
       } else {
-        var m = L.marker([a.lat, a.lon], { icon: planeIcon(a.track, a.altFt, isSel, !!favs[a.icao24], !!pins[a.icao24]) })
+        var m = L.marker([a.lat, a.lon], { icon: planeIcon(a.track, a.altFt, isSel, !!favs[a.icao24], !!pins[a.icao24], csOf(a)) })
           .addTo(map);
         m.on('click', function () { selected = a.icao24; drawTrail(); renderSelection(); openSheet(planes[a.icao24]); });
         markers[a.icao24] = m;
@@ -1147,14 +1186,78 @@ function dbg(msg) {
     });
     drawTrail();
     renderPins();
+    refreshClusterMode();
+    if (clusterMode) drawClusters();
   }
 
   function renderSelection() {
     Object.keys(markers).forEach(function (k) {
       var p = planes[k];
-      if (markers[k]) markers[k].setIcon(planeIcon(p.track, p.altFt, k === selected, !!favs[k], !!pins[k]));
+      if (markers[k]) markers[k].setIcon(planeIcon(p.track, p.altFt, k === selected, !!favs[k], !!pins[k], csOf(p)));
+    });
+    if (clusterMode) drawClusters();
+  }
+
+  // ---------- zhluky lietadiel pri malom priblížení ----------
+  var CLUSTER_ZOOM = 8;
+  var clusterMode = false, clusterMarkers = [];
+  function clusterIcon(n) {
+    var size = n < 10 ? 38 : n < 40 ? 46 : 56;
+    var col = n < 10 ? '#1e73c8' : n < 40 ? '#e08a1e' : '#d43f3f';
+    return L.divIcon({
+      className: 'cluster-icon',
+      html: '<div style="width:' + size + 'px;height:' + size + 'px;background:' + col + '"><b>' + n + '</b></div>',
+      iconSize: [size, size], iconAnchor: [Math.round(size / 2), Math.round(size / 2)]
     });
   }
+  function clearClusters() { clusterMarkers.forEach(function (m) { map.removeLayer(m); }); clusterMarkers = []; }
+  function drawClusters() {
+    clearClusters();
+    if (!clusterMode) return;
+    var z = map.getZoom(), groups = {};
+    Object.keys(markers).forEach(function (k) {
+      var a = planes[k];
+      var el = markers[k] && markers[k].getElement();
+      if (!a || a.lat == null || !el) return;
+      if (pins[k] || favs[k] || k === selected) { el.style.display = ''; return; }
+      var pt = map.project([a.lat, a.lon], z);
+      var key = Math.floor(pt.x / 64) + ':' + Math.floor(pt.y / 64);
+      (groups[key] = groups[key] || []).push(k);
+    });
+    Object.keys(groups).forEach(function (key) {
+      var g = groups[key];
+      if (g.length < 2) {
+        var el0 = markers[g[0]] && markers[g[0]].getElement();
+        if (el0) el0.style.display = '';
+        return;
+      }
+      var la = 0, lo = 0;
+      g.forEach(function (k) {
+        var el = markers[k] && markers[k].getElement();
+        if (el) el.style.display = 'none';
+        la += planes[k].lat; lo += planes[k].lon;
+      });
+      la /= g.length; lo /= g.length;
+      var m = L.marker([la, lo], { icon: clusterIcon(g.length), zIndexOffset: 600 }).addTo(map);
+      m.on('click', function () { map.setView([la, lo], Math.min(map.getZoom() + 2, CLUSTER_ZOOM), { animate: true }); });
+      clusterMarkers.push(m);
+    });
+  }
+  function refreshClusterMode() { setClusterMode(mapUnlocked && map.getZoom() < CLUSTER_ZOOM); }
+  function setClusterMode(on) {
+    if (on === clusterMode) return;
+    clusterMode = on;
+    if (!on) {
+      clearClusters();
+      Object.keys(markers).forEach(function (k) {
+        var el = markers[k] && markers[k].getElement();
+        if (el) el.style.display = '';
+      });
+    } else {
+      drawClusters();
+    }
+  }
+  map.on('moveend', function () { if (clusterMode) drawClusters(); });
 
   // vek dát v hlavičke: "dáta pred X s/min", varovanie pri starých dátach
   var lastGoodTs = 0, lastCount = 0;
@@ -1247,7 +1350,7 @@ function dbg(msg) {
   });
   var mapEl = map.getContainer();
   map.on('zoomstart', function () { mapEl.classList.add('zooming'); });
-  map.on('zoomend', function () { mapEl.classList.remove('zooming'); });
+  map.on('zoomend', function () { mapEl.classList.remove('zooming'); refreshClusterMode(); if (clusterMode) drawClusters(); else renderSelection(); });
   map.on('click', function () { if (selected) { selected = null; stopSelRefresh(); closeSheet(); drawTrail(); renderSelection(); } });
   map.on('dragstart', function () { follow = null; });
 
