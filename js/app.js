@@ -10,7 +10,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '4.5.0';
+  var VERSION = '4.5.1';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -285,6 +285,8 @@
   // ---------- manuálny refresh ----------
   window.__skyRefresh = function () {
     lastFetch = 0;
+    var rb = document.getElementById('refreshBtn');
+    if (rb) rb.classList.add('busy');
     fetchStates();
   };
 
@@ -374,7 +376,11 @@
     });
     var cnt = document.getElementById('listCount');
     if (cnt) cnt.textContent = '· ' + arr.length;
-    if (!arr.length) { out.innerHTML = '<div class="favempty">Žiadne lietadlá nezodpovedajú filtru.</div>'; return; }
+    if (!arr.length) {
+      var anyPlanes = Object.keys(planes).length > 0;
+      out.innerHTML = '<div class="favempty">' + (anyPlanes ? 'Žiadne lietadlá nezodpovedajú filtru.' : 'Zatiaľ žiadne dáta o lietadlách – skús ↻ obnoviť.') + '</div>';
+      return;
+    }
     var frag = document.createDocumentFragment();
     arr.slice(0, 300).forEach(function (a) {
       var cs = ((a.callsign || '').trim()).toUpperCase() || a.icao24.toUpperCase();
@@ -1166,6 +1172,8 @@ function dbg(msg) {
   function fetchStates() {
     if (inFlight) { pending = true; return; }
     inFlight = true;
+    var rb0 = document.getElementById('refreshBtn');
+    if (rb0) rb0.classList.add('busy');
     attemptLog = [];
     status('Načítavam…');
     tryFetch(0)
@@ -1215,7 +1223,12 @@ function dbg(msg) {
           status('Chyba: ' + err.message);
         }
       })
-      .then(function () { inFlight = false; if (pending) { pending = false; fetchStates(); } });
+      .then(function () {
+        inFlight = false;
+        var rb1 = document.getElementById('refreshBtn');
+        if (rb1) rb1.classList.remove('busy');
+        if (pending) { pending = false; fetchStates(); }
+      });
   }
 
   function refresh() {
