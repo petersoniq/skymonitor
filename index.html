@@ -184,6 +184,8 @@
     cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.25);
   }
   .diagbtn:hover, .iconbtn:hover { background: #fff; }
+  .iconbtn.busy { animation: btnspin 1s linear infinite; pointer-events: none; opacity: .8; }
+  @keyframes btnspin { to { transform: rotate(360deg); } }
   .btnbar { display: flex; gap: 6px; flex: none; margin-left: auto; }
 
   /* výškový profil dráhy v detaile */
@@ -208,7 +210,7 @@
   }
   .updbar .updclose { background: transparent; padding: 8px 4px; font-size: 14px; }
 
-  #diagPanel, #favPanel {
+  #diagPanel, #favPanel, #listPanel {
     position: fixed; inset: 0; z-index: 2000;
     background: rgba(0,0,0,.45);
     display: none; align-items: center; justify-content: center;
