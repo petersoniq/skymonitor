@@ -16,35 +16,71 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - name: Stiahni lietadlá a ulož do vetvy data
+      - name: Stiahni lietadlá zo 4 zdrojov, zlúč najčerstvejšie dáta
         run: |
-          rm -f part-*.json tmp.json
+          rm -f part-*.json tmp.json lol-*.json fi-*.json one-*.json lol.json fi.json one.json os.json opensky.json sk.json hist.json newhist.json
           n=0
-          regions=0
+          fail_lol=0
+          fail_fi=0
+          fail_one=0
           for c in "48.7 19.5" "48.11 16.57" "47.44 19.26" "50.1 14.26" "50.08 19.79" "52.17 20.97" "45.78 16.0" "46.05 14.5" "52.36 13.50" "48.35 11.79" "50.03 8.56" "47.46 8.55" "49.01 2.55" "52.31 4.76" "51.47 -0.45" "41.80 12.25" "45.63 8.72" "40.49 -3.57" "41.40 2.08" "55.62 12.66" "59.65 17.92" "44.57 26.09" "37.94 23.95" "60.19 11.10" "53.42 -6.27" "38.77 -9.13"; do
             lat=${c% *}
             lon=${c#* }
-            got=0
-            for src in "api.adsb.lol/v2" "opendata.adsb.fi/api/v2"; do
+            if [ "$fail_lol" -lt 3 ]; then
+              got=0
               for i in 1 2; do
-                curl -sL --max-time 25 "https://$src/lat/$lat/lon/$lon/dist/250" -o tmp.json
-                if jq -e '(.ac // .aircraft) | length' tmp.json > /dev/null 2>&1; then
+                curl -sL --max-time 15 "https://api.adsb.lol/v2/lat/$lat/lon/$lon/dist/250" -o tmp.json
+                if jq -e '(.ac // .aircraft // []) | length' tmp.json > /dev/null 2>&1; then
                   got=1
                   break
                 fi
                 sleep 2
               done
-              [ "$got" -eq 1 ] && break
-            done
-            if [ "$got" -eq 1 ]; then
-              cp tmp.json "part-$n.json"
-              n=$((n+1))
-              regions=$((regions+1))
+              if [ "$got" -eq 1 ]; then
+                cp tmp.json "lol-$n.json"
+                fail_lol=0
+              else
+                fail_lol=$((fail_lol+1))
+              fi
             fi
+            if [ "$fail_fi" -lt 3 ]; then
+              got=0
+              for i in 1 2; do
+                curl -sL --max-time 15 "https://opendata.adsb.fi/api/v2/lat/$lat/lon/$lon/dist/250" -o tmp.json
+                if jq -e '(.ac // .aircraft // []) | length' tmp.json > /dev/null 2>&1; then
+                  got=1
+                  break
+                fi
+                sleep 2
+              done
+              if [ "$got" -eq 1 ]; then
+                cp tmp.json "fi-$n.json"
+                fail_fi=0
+              else
+                fail_fi=$((fail_fi+1))
+              fi
+            fi
+            if [ "$fail_one" -lt 3 ]; then
+              curl -sL --max-time 12 "https://api.adsb.one/v2/lat/$lat/lon/$lon/dist/250" -o tmp.json
+              if jq -e '(.ac // .aircraft // []) | length' tmp.json > /dev/null 2>&1; then
+                cp tmp.json "one-$n.json"
+                fail_one=0
+              else
+                fail_one=$((fail_one+1))
+              fi
+              sleep 1
+            fi
+            n=$((n+1))
           done
+          echo "Regiony: lol=$(ls lol-*.json 2>/dev/null | wc -l) fi=$(ls fi-*.json 2>/dev/null | wc -l) one=$(ls one-*.json 2>/dev/null | wc -l)"
+          # ---------- jq filtre ----------
+          NORM='[.[] | (.ac // .aircraft // []) | map(select(.lat != null and .hex != null)) | map({hex: (.hex | ascii_downcase), flight: (if .flight == null then null else (.flight | sub("\\s+$"; "")) end), r: .r, t: .t, mil: (((.dbFlags // 0) % 2) == 1), alt_baro: .alt_baro, gs: .gs, track: .track, baro_rate: .baro_rate, squawk: .squawk, emergency: .emergency, category: .category, lat: .lat, lon: .lon, pt: (if .seen_pos == null then null else ((now - .seen_pos) | floor) end), src: $src})] | flatten | sort_by(.hex, (.pt // -1)) | reduce .[] as $a ([]; if (length > 0) and (.[-1].hex == $a.hex) then .[-1] = $a else . + [$a] end)'
+          OS_NORM='[.states[] | select(.[5] != null and .[6] != null and .[8] == false) | {hex: (.[0] | ascii_downcase), flight: (if .[1] == null then null else (.[1] | sub("\\s+$"; "")) end), r: null, t: null, mil: false, alt_baro: (if .[7] == null then null else (.[7] * 3.28084 | round) end), gs: (if .[9] == null then null else (.[9] * 1.94384 | round) end), track: .[10], baro_rate: (if .[11] == null then null else (.[11] * 196.85 | round) end), squawk: .[14], emergency: null, category: null, lat: .[6], lon: .[5], pt: (.[3] // null), src: "opensky"}] | sort_by(.hex, (.pt // -1)) | reduce .[] as $a ([]; if (length > 0) and (.[-1].hex == $a.hex) then .[-1] = $a else . + [$a] end)'
+          MERGE='flatten | sort_by(.hex) | reduce .[] as $a ([]; if (length > 0) and (.[-1][0].hex == $a.hex) then .[-1] = (.[-1] + [$a]) else . + [[$a]] end) | map(sort_by(.pt // -1) | reverse) | map(.[0] as $b | {b: $b, vc: ([.[] | select(.src != $b.src and (((.lat - $b.lat) * (.lat - $b.lat)) < 0.0049) and (((.lon - $b.lon) * (.lon - $b.lon)) < 0.0121))] | map(.src) | unique | length), r: ([.[] | select(.r != null)] | if length > 0 then .[0].r else null end), t: ([.[] | select(.t != null)] | if length > 0 then .[0].t else null end), fl: ([.[] | select(.flight != null)] | if length > 0 then (.[0].flight | gsub("\\s"; "")) else null end), cat: ([.[] | select(.category != null)] | if length > 0 then .[0].category else null end), mil: (([.[] | select(.mil == true)] | length) > 0)}) | map({hex: .b.hex, flight: .fl, r: .r, t: .t, mil: .mil, alt_baro: .b.alt_baro, gs: .b.gs, track: .b.track, baro_rate: .b.baro_rate, squawk: .b.squawk, emergency: (.b.emergency // null), category: .cat, lat: .b.lat, lon: .b.lon, v: (1 + .vc), pt: (.b.pt // null), src: .b.src})'
           # ---------- OpenSky (OAuth2, kredity 4000/deň): celá Európa v jednom dotaze ----------
           OPENSKY_ID="${{ secrets.OPENSKY_CLIENT_ID }}"
           OPENSKY_SECRET="${{ secrets.OPENSKY_CLIENT_SECRET }}"
+          echo '[]' > os.json
           if [ -n "$OPENSKY_ID" ] && [ -n "$OPENSKY_SECRET" ]; then
             TOKEN=$(curl -s --max-time 15 -X POST \
               "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token" \
@@ -55,8 +91,8 @@ jobs:
               curl -sL --max-time 40 -H "Authorization: Bearer $TOKEN" \
                 "https://opensky-network.org/api/states/all?lamin=34&lomin=-12&lamax=62&lomax=32" -o opensky.json
               if jq -e '.states | length' opensky.json > /dev/null 2>&1; then
-                jq -c '{ac: [.states[] | select(.[5] != null and .[6] != null and .[8] == false) | {hex: .[0], flight: .[1], alt_baro: (if .[7] == null then null else (.[7] * 3.28084 | round) end), gs: (if .[9] == null then null else (.[9] * 1.94384 | round) end), track: .[10], baro_rate: (if .[11] == null then null else (.[11] * 196.85 | round) end), squawk: .[14], lat: .[6], lon: .[5]}]}' opensky.json > part-opensky.json
-                echo "OpenSky: $(jq '.ac | length' part-opensky.json) lietadiel"
+                jq -c "$OS_NORM" opensky.json > os.json
+                echo "OpenSky: $(jq 'length' os.json) lietadiel"
               else
                 echo "OpenSky: odpoveď prázdna/chybná"
               fi
@@ -66,18 +102,25 @@ jobs:
           else
             echo "OpenSky: secrets nie sú nastavené, preskakujem"
           fi
-          if ! ls part-*.json > /dev/null 2>&1; then
-            echo "VAROVANIE: všetky zdroje zlyhali, zostáva stará cache"
+          # ---------- normalizácia zdrojov ----------
+          if ls lol-*.json > /dev/null 2>&1; then jq -s --arg src lol -c "$NORM" lol-*.json > lol.json; else echo '[]' > lol.json; fi
+          if ls fi-*.json > /dev/null 2>&1; then jq -s --arg src fi -c "$NORM" fi-*.json > fi.json; else echo '[]' > fi.json; fi
+          if ls one-*.json > /dev/null 2>&1; then jq -s --arg src one -c "$NORM" one-*.json > one.json; else echo '[]' > one.json; fi
+          # ---------- zlúčenie: najčerstvejšia pozícia + počet súhlasiacich zdrojov ----------
+          jq -s -c "$MERGE | {updated: (now|floor), ac: .}" lol.json fi.json one.json os.json > sk.json
+          TOTAL=$(jq '.ac | length' sk.json 2>/dev/null || echo 0)
+          if [ "$TOTAL" -lt 10 ]; then
+            echo "VAROVANIE: len $TOTAL lietadiel - zostáva stará cache"
             exit 0
           fi
-          jq -s '[.[] | (.ac // .aircraft)] | flatten | map(select(.lat != null)) | unique_by(.hex) | map({hex, flight, r, t, alt_baro, gs, track, baro_rate, squawk, emergency, category, lat, lon}) | {updated: (now|floor), ac: .}' part-*.json > sk.json
-          echo "OK: $regions regionov, $(jq '.ac | length' sk.json) lietadiel"
-          # história dráh: minulé pozície všetkých lietadiel (posledných ~20 behov = ~40 min)
+          echo "OK: $TOTAL lietadiel"
+          # ---------- história dráh (body s časovou pečiatkou, posledných ~20 behov = ~40 min) ----------
+          UPT=$(jq -r '.updated' sk.json)
           if curl -sL --max-time 25 "https://raw.githubusercontent.com/petersoniq/skymonitor/data/data/hist.json" -o hist.json 2>/dev/null && jq -e 'type == "object"' hist.json > /dev/null 2>&1; then
-            jq -c --slurpfile o hist.json '[.ac[] | select(.lat != null) | {key: .hex, value: [[.lat, .lon, (.alt_baro | if . == "ground" then 0 else . end)]]}] | from_entries | with_entries(.value = ((($o[0][.key] // []) + .value)[-20:]))' sk.json > newhist.json
+            jq -c --argjson u "$UPT" --slurpfile o hist.json '[.ac[] | select(.lat != null) | {key: .hex, value: [[.lat, .lon, (.alt_baro | if . == "ground" then 0 else . end), $u]]}] | from_entries | to_entries | map(.key as $k | .value = ((($o[0][$k] // []) + .value)[-20:])) | from_entries' sk.json > newhist.json
             mv newhist.json hist.json
           else
-            jq -c '[.ac[] | select(.lat != null) | {key: .hex, value: [[.lat, .lon, (.alt_baro | if . == "ground" then 0 else . end)]]}] | from_entries' sk.json > hist.json
+            jq -c --argjson u "$UPT" '[.ac[] | select(.lat != null) | {key: .hex, value: [[.lat, .lon, (.alt_baro | if . == "ground" then 0 else . end), $u]]}] | from_entries' sk.json > hist.json
           fi
           mkdir repo && cd repo
           git init -q
