@@ -10,7 +10,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '4.3.0';
+  var VERSION = '4.3.1';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -1275,23 +1275,33 @@
     }
   };
 
-  // ---------- aktualizácie aplikácie: banner ↻ načíta celú appku znova ----------
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').then(function (r) { dbg('SW zaregistrovaný'); }).catch(function (e) { dbg('SW chyba: ' + e.message); });
-  }
+  // ---------- aktualizácie aplikácie: spoľahlivo aj v nainštalovanej PWA ----------
   var newWorker = null;
-  window.__skyUpdate = function () {
-    if (newWorker) { swReloadArmed = true; newWorker.postMessage('SKIP_WAITING'); }
-    else location.reload();
-  };
+  var swReloadArmed = false;
   if ('serviceWorker' in navigator) {
-    var swReloadArmed = false;
     navigator.serviceWorker.addEventListener('controllerchange', function () {
       if (swReloadArmed) { swReloadArmed = false; location.reload(); }
     });
-    setInterval(function () {
-      navigator.serviceWorker.getRegistration().then(function (r) { if (r) r.update(); }).catch(function () {});
-    }, 15 * 60 * 1000);
+  }
+  function showUpdBar() {
+    var b = document.getElementById('updBar');
+    if (b) b.style.display = 'flex';
+  }
+  function swCheck() {
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.getRegistration().then(function (r) {
+      if (!r) return;
+      // čakajúci SW z predošlého behu (typicky PWA po dlhom spánku) -> banner hneď
+      if (r.waiting && navigator.serviceWorker.controller && !newWorker) {
+        newWorker = r.waiting;
+        showUpdBar();
+        dbg('nájdený čakajúci SW – nová verzia pripravená');
+      }
+      r.update().catch(function () {});
+    }).catch(function () {});
+  }
+  function swWatch() {
+    if (!('serviceWorker' in navigator)) return;
     navigator.serviceWorker.getRegistration().then(function (r) {
       if (!r) return;
       r.addEventListener('updatefound', function () {
@@ -1300,13 +1310,35 @@
         nw.addEventListener('statechange', function () {
           if (nw.state === 'installed' && navigator.serviceWorker.controller) {
             newWorker = nw;
-            var b = document.getElementById('updBar');
-            if (b) b.style.display = 'flex';
+            showUpdBar();
             dbg('nová verzia nainštalovaná – čakám na potvrdenie používateľa');
           }
         });
       });
-    });
+    }).catch(function () {});
+  }
+  window.__skyUpdate = function () {
+    if (newWorker) {
+      swReloadArmed = true;
+      try { newWorker.postMessage('SKIP_WAITING'); } catch (e) {}
+      // pojistka: ak sa preberanie zasekne (typicky v PWA), načítaj appku znova aj tak
+      setTimeout(function () { swReloadArmed = false; location.reload(); }, 4000);
+    } else {
+      location.reload();
+    }
+  };
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').then(function (r) {
+      dbg('SW zaregistrovaný');
+      swWatch();
+      swCheck();
+    }).catch(function (e) { dbg('SW chyba: ' + e.message); });
+    // PWA: kontrola pri každom návrate do aplikácie (zobudenie z pozadia/bfcache)
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) swCheck(); });
+    window.addEventListener('pageshow', function (e) { if (e.persisted) swCheck(); });
+    window.addEventListener('online', function () { swCheck(); });
+    // a pravidelne každých 5 min, keď je appka otvorená
+    setInterval(swCheck, 5 * 60 * 1000);
   }
 
   setTheme((function () { try { return localStorage.getItem('skymon-theme') === 'dark'; } catch (e) { return false; } })());
