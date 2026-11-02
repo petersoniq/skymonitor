@@ -10,7 +10,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '4.3.1';
+  var VERSION = '4.4.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -897,6 +897,31 @@
   }
   window.__skySheetClose = function () { selected = null; stopSelRefresh(); closeSheet(); drawTrail(); renderSelection(); };
 
+  // výškový profil dráhy – jednoduchý SVG graf bez knižnice
+  function profileSvg(a) {
+    var tr = (a.trail || []).filter(function (p) { return p && p.length > 2 && typeof p[2] === 'number' && p[2] >= 0; });
+    if (tr.length < 4) return '';
+    var W = 320, H = 84, padL = 6, padR = 6, padT = 10, padB = 12;
+    var mn = Infinity, mx = -Infinity;
+    tr.forEach(function (p) { if (p[2] < mn) mn = p[2]; if (p[2] > mx) mx = p[2]; });
+    if (mx - mn < 500) { mx += 250; mn = Math.max(0, mn - 250); }
+    var n = tr.length;
+    function X(i) { return padL + (W - padL - padR) * (i / (n - 1)); }
+    function Y(v) { return H - padB - (H - padT - padB) * ((v - mn) / (mx - mn)); }
+    var dLine = '';
+    tr.forEach(function (p, i) { dLine += (i === 0 ? 'M' : 'L') + X(i).toFixed(1) + ' ' + Y(p[2]).toFixed(1) + ' '; });
+    var dArea = dLine + 'L' + X(n - 1).toFixed(1) + ' ' + (H - padB) + ' L' + X(0).toFixed(1) + ' ' + (H - padB) + ' Z';
+    var lastP = tr[tr.length - 1];
+    return '<div class="profwrap"><div class="proftitle">Výškový profil dráhy <small>· max ' + Math.round(mx) + ' ft ≈ FL' + Math.round(mx / 100) + '</small></div>' +
+      '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" class="profsvg" role="img" aria-label="Výškový profil">' +
+      '<line x1="' + padL + '" y1="' + Y(mx).toFixed(1) + '" x2="' + (W - padR) + '" y2="' + Y(mx).toFixed(1) + '" stroke="#dfe7ee" stroke-width="1"/>' +
+      '<line x1="' + padL + '" y1="' + Y(mn).toFixed(1) + '" x2="' + (W - padR) + '" y2="' + Y(mn).toFixed(1) + '" stroke="#dfe7ee" stroke-width="1"/>' +
+      '<path d="' + dArea + '" fill="rgba(30,115,200,.15)"/>' +
+      '<path d="' + dLine + '" fill="none" stroke="#1e73c8" stroke-width="2"/>' +
+      '<circle cx="' + X(n - 1).toFixed(1) + '" cy="' + Y(lastP[2]).toFixed(1) + '" r="3.5" fill="#d43f3f" stroke="#fff" stroke-width="1.5"/>' +
+      '</svg></div>';
+  }
+
   function sheetBodyHtml(a) {
     var cell = function (l, v) {
       return '<div class="cell"><span>' + l + '</span><b>' + v + '</b></div>';
@@ -965,6 +990,8 @@
       (a.category && CATEGORIES[a.category] ? cell('Kategória', CATEGORIES[a.category]) : '') +
       (myPos && a.lat != null ? cell('Odo mňa', Math.round(distKm(myPos.lat, myPos.lon, a.lat, a.lon)) + ' km') : '') +
     '</div>';
+    var prof = profileSvg(a);
+    if (prof) html += prof;
     var links = '';
     if (a.reg) {
       links += '<a class="btn ghost" href="https://www.planespotters.net/search?q=' + encodeURIComponent(a.reg) + '" target="_blank" rel="noopener">📷 Fotografie</a>';
@@ -984,10 +1011,11 @@
   function updateTrail(a) {
     var p = planes[a.icao24];
     var trail = (p && p.trail) || [];
+    var alt = (a.altFt != null ? Math.round(a.altFt) : null);
     if (trail.length) {
       var last = trail[trail.length - 1];
-      if (Math.abs(last[0] - a.lat) > 0.0005 || Math.abs(last[1] - a.lon) > 0.0005) trail.push([a.lat, a.lon]);
-    } else trail.push([a.lat, a.lon]);
+      if (Math.abs(last[0] - a.lat) > 0.0005 || Math.abs(last[1] - a.lon) > 0.0005) trail.push([a.lat, a.lon, alt]);
+    } else trail.push([a.lat, a.lon, alt]);
     if (trail.length > 200) trail.shift();
     a.trail = trail;
   }
@@ -1059,6 +1087,19 @@
     });
   }
 
+  // vek dát v hlavičke: "dáta pred X s/min", varovanie pri starých dátach
+  var lastGoodTs = 0, lastCount = 0;
+  function updateStatusAge() {
+    if (!lastGoodTs) return;
+    var el = document.getElementById('status');
+    if (!el || el.innerHTML.indexOf('Načítavam') === 0 || el.innerHTML.indexOf('Hľadám') === 0) return;
+    var age = Math.round((Date.now() - lastGoodTs) / 1000);
+    var ageStr = age < 60 ? 'pred ' + age + ' s' : 'pred ' + Math.round(age / 60) + ' min';
+    var warn = age > 240 ? '⚠ ' : '';
+    status(warn + lastCount + ' lietadiel • dáta ' + ageStr + ' • ' + (lastSource || ''));
+  }
+  setInterval(updateStatusAge, 15000);
+
   function fetchStates() {
     if (inFlight) { pending = true; return; }
     inFlight = true;
@@ -1094,7 +1135,8 @@
         if (follow && planes[follow]) {
           map.setView([planes[follow].lat, planes[follow].lon], map.getZoom(), { animate: false });
         }
-        status(arr.length + ' lietadiel • ' + new Date().toLocaleTimeString('sk') + (lastSource ? ' • ' + lastSource : ''));
+        lastGoodTs = Date.now(); lastCount = arr.length;
+        status(arr.length + ' lietadiel • dáta teraz • ' + (lastSource || ''));
       })
       .catch(function (err) {
         // offline fallback: ak nemáme nič na mape, zobraz posledné uložené dáta
