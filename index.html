@@ -15,7 +15,7 @@
 
   /* hlavička: dva riadky, žiadne prekryvy, všetko klikateľné */
   .topbar {
-    position: absolute; top: 10px; left: 10px; right: 10px; z-index: 1000;
+    position: absolute; top: calc(10px + env(safe-area-inset-top)); left: calc(10px + env(safe-area-inset-left)); right: calc(10px + env(safe-area-inset-right)); z-index: 1000;
     display: flex; flex-direction: column; gap: 8px; align-items: stretch;
   }
   .toprow, .searchrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -26,35 +26,37 @@
 
   .brand {
     display: flex; align-items: center; gap: 10px;
-    background: rgba(11,61,92,.92); color: #fff;
+    background: rgba(11,61,92,.68); color: #fff;
     padding: 10px 16px; border-radius: 12px;
     font-weight: 700; font-size: 16px; letter-spacing: .3px;
     box-shadow: 0 4px 14px rgba(0,0,0,.25);
-    backdrop-filter: blur(6px);
+    backdrop-filter: blur(14px) saturate(1.5); -webkit-backdrop-filter: blur(14px) saturate(1.5);
   }
   .brand svg { width: 20px; height: 20px; flex: none; }
   .brand small { font-weight: 400; opacity: .75; font-size: 10.5px; display: block; margin-top: -2px; letter-spacing: 0; }
 
   .topbar input[type="search"] {
     padding: 11px 14px; font-size: 15px;
-    border: none; border-radius: 12px; outline: none;
+    border: 1px solid rgba(255,255,255,.55); border-radius: 12px; outline: none;
     box-shadow: 0 4px 14px rgba(0,0,0,.25);
-    background: rgba(255,255,255,.96);
+    background: rgba(255,255,255,.72);
+    backdrop-filter: blur(14px) saturate(1.5); -webkit-backdrop-filter: blur(14px) saturate(1.5);
   }
   .topbar input[type="search"]:focus { box-shadow: 0 0 0 3px rgba(30,115,200,.5); }
 
   .toggle {
     display: flex; align-items: center; gap: 7px;
-    background: rgba(255,255,255,.92); padding: 11px 14px; border-radius: 12px;
+    background: rgba(255,255,255,.72); padding: 11px 14px; border-radius: 12px;
+    backdrop-filter: blur(14px) saturate(1.5); -webkit-backdrop-filter: blur(14px) saturate(1.5);
     font-size: 13.5px; cursor: pointer; user-select: none; white-space: nowrap; min-width: 0;
     box-shadow: 0 4px 14px rgba(0,0,0,.25);
   }
   .toggle input { accent-color: #0b3d5c; width: 16px; height: 16px; }
 
   .status {
-    background: rgba(11,61,92,.92); color: #fff;
+    background: rgba(11,61,92,.68); color: #fff;
     padding: 10px 14px; border-radius: 12px; font-size: 13px;
-    box-shadow: 0 4px 14px rgba(0,0,0,.25); backdrop-filter: blur(6px);
+    box-shadow: 0 4px 14px rgba(0,0,0,.25); backdrop-filter: blur(14px) saturate(1.5); -webkit-backdrop-filter: blur(14px) saturate(1.5);
     display: flex; align-items: center; gap: 8px; white-space: nowrap;
   }
   .status .pulse {
@@ -85,7 +87,8 @@
   }
   .sheet.open { transform: translateY(0); pointer-events: auto; }
   .sheet-card {
-    background: #fff; width: 100%; max-width: 560px;
+    background: rgba(255,255,255,.9); width: 100%; max-width: 560px;
+    backdrop-filter: blur(20px) saturate(1.4); -webkit-backdrop-filter: blur(20px) saturate(1.4);
     border-radius: 18px 18px 0 0;
     box-shadow: 0 -6px 30px rgba(0,0,0,.3);
     padding: 14px 16px calc(16px + env(safe-area-inset-bottom));
@@ -95,6 +98,23 @@
   .sheet-title { font-size: 22px; font-weight: 800; color: #0b3d5c; letter-spacing: .5px; line-height: 1.1; overflow-wrap: anywhere; }
   .sheet-sub { font-size: 13px; color: #667; margin-top: 3px; }
   .sheet-close { border: none; background: #eef2f6; width: 34px; height: 34px; border-radius: 10px; font-size: 15px; cursor: pointer; color: #334; flex: none; }
+  .sheet-card { transition: transform .25s ease; }
+  .sheet-card.dragging { transition: none; }
+  .sheet-grab { width: 44px; height: 5px; border-radius: 3px; background: #c3d0dd; margin: 0 auto 8px; }
+  .plane-wrap { position: relative; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; }
+  .cslbl {
+    position: absolute; left: 26px; top: -2px; z-index: 5;
+    font-size: 10px; font-weight: 800; color: #0b3d5c; letter-spacing: .3px;
+    background: rgba(255,255,255,.78); padding: 1.5px 5px; border-radius: 5px;
+    white-space: nowrap; pointer-events: none;
+    text-shadow: 0 1px 1px rgba(255,255,255,.8);
+  }
+  .cluster-icon div {
+    display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
+    border-radius: 50%; color: #fff; font-weight: 800; font-size: 13px;
+    border: 2.5px solid rgba(255,255,255,.92);
+    box-shadow: 0 3px 12px rgba(0,0,0,.35); text-shadow: 0 1px 2px rgba(0,0,0,.4);
+  }
   .routeline {
     background: #eaf1f8; color: #0b3d5c; font-weight: 700;
     border-radius: 10px; padding: 10px 12px; font-size: 14px;
@@ -171,8 +191,9 @@
   }
 
   .legend {
-    position: absolute; bottom: 12px; right: 12px; z-index: 1000;
-    background: rgba(255,255,255,.93); border-radius: 12px; padding: 9px 13px;
+    position: absolute; bottom: calc(12px + env(safe-area-inset-bottom)); right: calc(12px + env(safe-area-inset-right)); z-index: 1000;
+    background: rgba(255,255,255,.72); border-radius: 12px; padding: 9px 13px;
+    backdrop-filter: blur(14px) saturate(1.5); -webkit-backdrop-filter: blur(14px) saturate(1.5);
     font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.25);
   }
   .legend span.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
@@ -180,7 +201,8 @@
   .diagbtn, .iconbtn {
     display: flex; align-items: center; justify-content: center;
     width: 42px; height: 42px; font-size: 17px; flex: none;
-    background: rgba(255,255,255,.92); border: none; border-radius: 12px;
+    background: rgba(255,255,255,.72); border: 1px solid rgba(255,255,255,.55); border-radius: 12px;
+    backdrop-filter: blur(14px) saturate(1.5); -webkit-backdrop-filter: blur(14px) saturate(1.5);
     cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.25);
   }
   .diagbtn:hover, .iconbtn:hover { background: #fff; }
@@ -196,9 +218,10 @@
 
   /* banner: dostupná nová verzia */
   .updbar {
-    position: fixed; left: 50%; transform: translateX(-50%); bottom: 18px; z-index: 1800;
+    position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom)); z-index: 1800;
     display: flex; align-items: center; gap: 10px;
-    background: rgba(11,61,92,.97); color: #fff;
+    background: rgba(11,61,92,.82); color: #fff;
+    backdrop-filter: blur(14px) saturate(1.5); -webkit-backdrop-filter: blur(14px) saturate(1.5);
     padding: 10px 14px; border-radius: 14px;
     font-size: 13.5px; font-weight: 600;
     box-shadow: 0 6px 26px rgba(0,0,0,.45);
@@ -218,14 +241,15 @@
   }
 
   .diagcard {
-    background: #fff; border-radius: 14px; max-width: 480px; width: 100%;
+    background: rgba(255,255,255,.9); border-radius: 14px; max-width: 480px; width: 100%;
+    backdrop-filter: blur(20px) saturate(1.4); -webkit-backdrop-filter: blur(20px) saturate(1.4);
     max-height: 80vh; overflow: auto; box-shadow: 0 12px 40px rgba(0,0,0,.4);
     font-size: 13px; line-height: 1.6;
   }
   .diaghead {
     display: flex; justify-content: space-between; align-items: center;
     padding: 12px 16px; border-bottom: 1px solid #eee;
-    font-weight: 700; color: #0b3d5c; position: sticky; top: 0; background: #fff;
+    font-weight: 700; color: #0b3d5c; position: sticky; top: 0; background: rgba(255,255,255,.94); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
   }
   .diaghead button { border: none; background: none; font-size: 16px; cursor: pointer; color: #666; }
   #diagOut { padding: 14px 16px; font-family: ui-monospace, Menlo, Consolas, monospace; }
@@ -277,6 +301,7 @@
 </div>
 <div id="sheet" class="sheet">
   <div class="sheet-card">
+    <div class="sheet-grab" aria-hidden="true"></div>
     <div class="sheet-head">
       <div>
         <div id="sheetTitle" class="sheet-title">–</div>
