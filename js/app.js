@@ -444,7 +444,7 @@ function dbg(msg) {
       ? '<circle cx="12" cy="12" r="10.5" fill="none" stroke="#8e24aa" stroke-width="1.6"/>'
       : (isFav
         ? '<circle cx="12" cy="12" r="10.5" fill="none" stroke="#f5b301" stroke-width="1.4"/>'
-        : (isSel ? '<circle cx="12" cy="12" r="10.5" fill="none" stroke="#d43f3f" stroke-width="1.2"/>' : '')));
+        : (isSel ? '<circle cx="12" cy="12" r="10.5" fill="none" stroke="#d43f3f" stroke-width="1.2"/>' : ''));
     var star = isFav ? '<path d="M19.5 4.6 L18.1 7.4 L15 7.9 L17.3 10.1 L16.7 13.2 L19.5 11.7 L22.3 13.2 L21.7 10.1 L24 7.9 L20.9 7.4 Z" fill="#f5b301" stroke="#fff" stroke-width="0.5" transform="scale(0.72) translate(1 1)"/>' : '';
     var lbl = '';
     if (cs && (isSel || isFav || isPin || map.getZoom() >= 11)) {
