@@ -10,7 +10,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '4.4.0';
+  var VERSION = '4.5.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -337,7 +337,70 @@
       .catch(function (err) { status('Nepodarilo sa nájsť: ' + err.message); });
   };
 
-  function dbg(msg) {
+    // ---------- zoznam lietadiel (panel 📋) ----------
+  var listSort = 'alt', listEmg = false, listFilterQ = '';
+  window.__skyListClose = function () { var p = document.getElementById('listPanel'); if (p) p.style.display = 'none'; };
+  window.__skyListSort = function (v) { listSort = v || 'alt'; window.__skyList(); };
+  window.__skyListEmg = function (v) { listEmg = !!v; window.__skyList(); };
+  window.__skyListFilter = function (v) { listFilterQ = (v || '').trim().toUpperCase(); window.__skyList(); };
+  window.__skyShowPlane = function (hex) {
+    var p = planes[hex];
+    window.__skyListClose();
+    if (!p || p.lat == null) return;
+    selected = hex;
+    unlockMap();
+    map.setView([p.lat, p.lon], Math.max(map.getZoom(), 8), { animate: true });
+    drawTrail(); renderSelection(); openSheet(p);
+  };
+  window.__skyList = function () {
+    var panel = document.getElementById('listPanel');
+    var out = document.getElementById('listOut');
+    if (!panel || !out) return;
+    panel.style.display = 'flex';
+    var keepScroll = out.scrollTop;
+    var arr = Object.keys(planes).map(function (k) { return planes[k]; }).filter(function (a) { return a.lat != null; });
+    if (hideGround) arr = arr.filter(function (a) { return !a.onGround; });
+    if (listEmg) arr = arr.filter(function (a) { return a.emergency && a.emergency !== 'none'; });
+    if (listFilterQ) arr = arr.filter(function (a) {
+      return ((a.callsign || '').trim().toUpperCase()).indexOf(listFilterQ) !== -1 ||
+             a.icao24.toUpperCase().indexOf(listFilterQ) !== -1 ||
+             (a.reg || '').toUpperCase().indexOf(listFilterQ) !== -1;
+    });
+    arr.sort(function (x, y) {
+      if (listSort === 'cs') return (((x.callsign || '').trim()) || x.icao24).localeCompare(((y.callsign || '').trim()) || y.icao24);
+      if (listSort === 'spd') return (y.speedKmh || 0) - (x.speedKmh || 0);
+      if (listSort === 'me' && myPos) return distKm(myPos.lat, myPos.lon, x.lat, x.lon) - distKm(myPos.lat, myPos.lon, y.lat, y.lon);
+      return (y.altFt == null ? -1 : y.altFt) - (x.altFt == null ? -1 : x.altFt);
+    });
+    var cnt = document.getElementById('listCount');
+    if (cnt) cnt.textContent = '· ' + arr.length;
+    if (!arr.length) { out.innerHTML = '<div class="favempty">Žiadne lietadlá nezodpovedajú filtru.</div>'; return; }
+    var frag = document.createDocumentFragment();
+    arr.slice(0, 300).forEach(function (a) {
+      var cs = ((a.callsign || '').trim()).toUpperCase() || a.icao24.toUpperCase();
+      if (a.emergency && a.emergency !== 'none') cs += ' ⚠️';
+      var rp = routeParts(a.route);
+      var subParts = [];
+      if (rp) subParts.push(rp.from + '→' + rp.to);
+      else if (a.fromTo) subParts.push(a.fromTo.from.icao + '→' + a.fromTo.to.icao);
+      if (a.reg) subParts.push(a.reg);
+      if (a.type) subParts.push(a.type);
+      var line = document.createElement('div');
+      line.className = 'listrow' + (a.icao24 === selected ? ' sel' : '');
+      var alt = a.altFt != null ? Math.round(a.altFt) + ' ft' : '–';
+      var spd = a.speedKmh != null ? Math.round(a.speedKmh) + ' km/h' : '–';
+      var dist = (myPos && listSort === 'me') ? ' · ' + Math.round(distKm(myPos.lat, myPos.lon, a.lat, a.lon)) + ' km' : '';
+      line.innerHTML = '<div class="lr-main"><b>' + cs + '</b><span>' + (subParts.join(' · ') || 'hex ' + a.icao24) + '</span></div>' +
+        '<div class="lr-side"><span>' + alt + '</span><span>' + spd + dist + '</span></div>';
+      line.onclick = function () { window.__skyShowPlane(a.icao24); };
+      frag.appendChild(line);
+    });
+    out.innerHTML = '';
+    out.appendChild(frag);
+    out.scrollTop = keepScroll;
+  };
+
+function dbg(msg) {
     // tichý režim – len do konzoly (F12), žiadny vizuálny panel
     try { if (console && console.log) console.log('[SkyMonitor] ' + msg); } catch (e) {}
   }
@@ -1117,6 +1180,8 @@
         }
         saveLastStates(arr);
         renderStates(arr);
+        var lpEl = document.getElementById('listPanel');
+        if (lpEl && lpEl.style.display === 'flex') window.__skyList();
         // pri širokom zábere doplň lietadlá z repo-cache (celá Európa, aktualizácia každých 5 min)
         if (map.getZoom() <= 5 && lastSource !== 'repo-cache') {
           fetchRepoData().then(function (repo) {
