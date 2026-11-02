@@ -10,7 +10,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '5.0.4';
+  var VERSION = '5.1.0';
   var REFRESH_MS = 15000;
   var FETCH_TIMEOUT = 12000;
   var ICON_COLORS = ['#1e73c8', '#e08a1e', '#d43f3f'];
@@ -660,7 +660,7 @@ function dbg(msg) {
       speedKt: a.gs, speedKmh: (a.gs != null ? a.gs * 1.852 : null),
       track: a.track, vrateFpm: a.baro_rate, squawk: a.squawk,
       mach: (a.mach != null ? a.mach : null), oat: (a.oat != null ? a.oat : null), category: a.category || null,
-      emergency: a.emergency, src: src
+      emergency: a.emergency, v: (a.v || null), pt: (a.pt || null), mil: (!!a.mil || ((a.dbFlags || 0) % 2) === 1), src: src
     };
   }
 
@@ -673,7 +673,7 @@ function dbg(msg) {
       speedKt: (s[9] != null ? s[9] * 1.94384 : null),
       speedKmh: (s[9] != null ? s[9] * 3.6 : null),
       track: s[10], vrateFpm: (s[11] != null ? s[11] * FT * 60 : null),
-      squawk: s[14], emergency: null, src: 'OpenSky'
+      squawk: s[14], emergency: null, v: null, pt: (s[3] || null), mil: false, src: 'OpenSky'
     };
   }
 
@@ -895,7 +895,7 @@ function dbg(msg) {
     var h = histData && histData[a.icao24];
     if (!h || !h.length) return;
     var t = a.trail || [];
-    var head = h.slice(0, Math.max(0, h.length - 1));
+    var head = h;
     var merged = head.filter(function (p) {
       return !t.some(function (q) { return Math.abs(q[0] - p[0]) < 1e-4 && Math.abs(q[1] - p[1]) < 1e-4; });
     });
@@ -1029,6 +1029,12 @@ function dbg(msg) {
       '</svg></div>';
   }
 
+  function verifyStr(a) {
+    if (!a || !a.v) return '–';
+    if (a.v === 1) return '1 zdroj';
+    return '✓ ' + a.v + (a.v < 5 ? ' zdroje' : ' zdrojov');
+  }
+
   function sheetBodyHtml(a) {
     var cell = function (l, v) {
       return '<div class="cell"><span>' + l + '</span><b>' + v + '</b></div>';
@@ -1110,7 +1116,17 @@ function dbg(msg) {
       '<button class="btn fav' + (favs[a.icao24] ? ' on' : '') + '" onclick="window.__skyFav(&#39;' + a.icao24 + '&#39;)">' + (favs[a.icao24] ? '★ V obľúbených' : '☆ Obľúbené') + '</button>' +
       links +
     '</div>';
-    html += '<div class="sheet-foot">' + a.src + ' • dráha: ' + ((a.trail || []).length) + ' bodov</div>';
+    var footExtra = '';
+    if (a.pt) {
+      var pa = Math.round(Date.now() / 1000 - a.pt);
+      footExtra += ' • pozícia pred ' + (pa < 90 ? pa + ' s' : Math.round(pa / 60) + ' min');
+    }
+    var trArr = a.trail || [];
+    if (trArr.length > 1 && trArr[0].length > 3 && trArr[trArr.length - 1].length > 3) {
+      var tmin = Math.round((trArr[trArr.length - 1][3] - trArr[0][3]) / 60);
+      if (tmin > 0) footExtra += ' • dráha ~' + tmin + ' min';
+    }
+    html += '<div class="sheet-foot">' + a.src + footExtra + ' • overenie: ' + verifyStr(a) + ' • ' + trArr.length + ' bodov dráhy</div>';
     return html;
   }
 
